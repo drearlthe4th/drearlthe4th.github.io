@@ -40,7 +40,7 @@ definition:
 ```bash
 Rscript scripts/vs_new.R glp1ra --name "GLP-1 receptor agonists" --type drug
 # add ingredient RxCUIs to meta.yaml concepts:
-Rscript scripts/vs_ndc_refresh.R glp1ra --dry-run
+Rscript scripts/vs_ndc_refresh.R glp1ra            # dry run first
 Rscript scripts/vs_ndc_refresh.R glp1ra --write
 ```
 
