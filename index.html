@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Value set library</title>
+<meta name="description" content="Reusable, versioned code lists for claims research — NDC, RxNorm, ICD-9/10-CM,">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/highlight.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#128203;</text></svg>">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="layout">
+<header class="sidebar">
+  <div class="brand">
+    <a href="index.html">Value set library</a>
+    <p>Reusable, versioned code lists for claims research</p>
+  </div>
+  <nav class="site-nav" aria-label="Site">
+    <ul>
+      <li><a href="index.html" class="current" aria-current="page">Overview</a></li>
+      <li><a href="process.html">Process</a></li>
+      <li><a href="governance.html">Governance</a></li>
+      <li><a href="project-instructions.html">Project instructions</a></li>
+      <li><a href="project-context.html">Project context</a></li>
+    </ul>
+  </nav>
+  <nav class="page-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ul>
+      <li><a href="#layout">Layout</a></li>
+      <li><a href="#workflow">Workflow</a></li>
+      <li><a href="#conventions-that-matter">Conventions that matter</a></li>
+      <li><a href="#validator">Validator</a></li>
+      <li><a href="#seed-sets">Seed sets</a></li>
+      <li><a href="#related">Related</a></li>
+    </ul>
+  </nav>
+
+</header>
+<main id="main">
+  <article class="prose">
+<h1 id="value-set-library">Value set library<a class="headerlink" href="#value-set-library" title="Link to this section">#</a></h1>
+<p>Reusable, versioned code lists for claims research — NDC, RxNorm, ICD-9/10-CM,
+ICD-9/10-PCS, CPT, HCPCS, revenue center, POS, DRG.</p>
+<p>A definition is written once, reviewed once, and reused. The alternative — a
+code list rebuilt from memory each study — is how two papers from the same lab
+end up with different denominators for the same construct.</p>
+<h2 id="layout">Layout<a class="headerlink" href="#layout" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code>catalog/&lt;id&gt;/meta.yaml    definition, provenance, validation, caveats
+catalog/&lt;id&gt;/codes.csv    one row per code
+build/                    GENERATED — never hand-edit, never commit conflicts here
+scripts/                  new · validate · build · ndc refresh
+</code></pre></div>
+
+<h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Link to this section">#</a></h2>
+<p><code>make</code> is the entry point. The scripts are machinery; the Makefile is the
+process, so the order is not something you have to remember.</p>
+<div class="codehilite"><pre><span></span><code>make<span class="w">                                   </span><span class="c1"># what the targets are</span>
+make<span class="w"> </span>new<span class="w"> </span><span class="nv">ID</span><span class="o">=</span>hf<span class="w"> </span><span class="nv">NAME</span><span class="o">=</span><span class="s2">"Heart failure"</span><span class="w"> </span><span class="nv">TYPE</span><span class="o">=</span>condition
+<span class="c1"># fill in catalog/hf/meta.yaml and codes.csv</span>
+make<span class="w"> </span>check<span class="w">                             </span><span class="c1"># validate</span>
+make<span class="w"> </span>build<span class="w">                             </span><span class="c1"># compile to build/ and build/sas/</span>
+make<span class="w"> </span>review<span class="w"> </span><span class="nv">ID</span><span class="o">=</span>hf<span class="w">                      </span><span class="c1"># promote draft -&gt; reviewed</span>
+</code></pre></div>
+
+<p>Run <code>make ci</code> before anything that matters — strict mode, where warnings fail.
+Wire it to a pre-commit hook or CI and the discipline stops depending on
+memory.</p>
+<p>Drugs get one extra step, because an NDC list is a dated snapshot rather than a
+definition:</p>
+<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_new.py<span class="w"> </span>glp1ra<span class="w"> </span>--name<span class="w"> </span><span class="s2">"GLP-1 receptor agonists"</span><span class="w"> </span>--type<span class="w"> </span>drug
+<span class="c1"># add ingredient RxCUIs to meta.yaml concepts:</span>
+python<span class="w"> </span>scripts/vs_ndc_refresh.py<span class="w"> </span>glp1ra<span class="w"> </span>--dry-run
+python<span class="w"> </span>scripts/vs_ndc_refresh.py<span class="w"> </span>glp1ra<span class="w"> </span>--write
+</code></pre></div>
+
+<p>Then reconcile against the NDCs actually present in PDE — export
+<code>ndc,n_fills</code> from the VM and run:</p>
+<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_ndc_reconcile.py<span class="w"> </span>glp1ra<span class="w"> </span>--observed<span class="w"> </span>pde_ndcs.csv
+</code></pre></div>
+
+<p>RxNav's <code>getAllHistoricalNDCs</code> with <code>history=2</code> returns every NDC ever
+associated with a concept, including retired ones, back to about 2007 — for
+metformin 500 mg that is 2,014 NDC-periods against 488 in the current-only
+view. openFDA has no historical coverage at all and is used only for marketing
+dates on products still listed. Refresh builds; reconcile verifies.</p>
+<p>Keep the bulk status cache current — it is what makes an unresolved NDC
+diagnosable rather than merely missing:</p>
+<div class="codehilite"><pre><span></span><code>make<span class="w"> </span>ndc-cache<span class="w">                                 </span><span class="c1"># 1.49M NDCs, ~6 seconds</span>
+</code></pre></div>
+
+<h3 id="verifying-against-the-claims">Verifying against the claims<a class="headerlink" href="#verifying-against-the-claims" title="Link to this section">#</a></h3>
+<p>RxNav knows RxNorm; it does not know your data. Export observed PDE NDCs with
+fill counts and check:</p>
+<div class="codehilite"><pre><span></span><code>make<span class="w"> </span>reconcile<span class="w"> </span><span class="nv">ID</span><span class="o">=</span>sglt2i<span class="w"> </span><span class="nv">OBS</span><span class="o">=</span>pde_ndcs.csv
+</code></pre></div>
+
+<p>Unmatched NDCs are triaged into OBSOLETE (your build is at fault), ALIEN
+(unreachable from RxNorm by any traversal), and ABSENT (check padding first).</p>
+<p>This produces a <strong>report, not a repo artifact</strong>. Fill counts are CMS-derived
+and stay on the VM. Where the reconciliation reveals a real limitation — a
+large ALIEN share, an omitted route — write it into the value set's <code>caveats</code>
+as prose. The repo therefore holds no derived counts at all.</p>
+<h2 id="conventions-that-matter">Conventions that matter<a class="headerlink" href="#conventions-that-matter" title="Link to this section">#</a></h2>
+<p><strong>Codes are stored as the claims store them.</strong> ICD without decimals, NDC
+11-digit undashed with leading zeros intact, revenue codes zero-padded to 4.
+The validator enforces this. A decimal in an ICD code matches nothing and
+raises no error.</p>
+<p><strong>Retired codes keep their rows.</strong> Set <code>valid_to</code>; do not delete. Old claims
+still carry them, and the row is what tells a future reader the absence was
+known rather than overlooked.</p>
+<p><strong>Exclusions need a note.</strong> An exclusion that overlaps no inclusion is a
+validation error, because it nearly always means the hierarchy was misread.</p>
+<p><strong>Warnings are dismissed explicitly.</strong> <code>suppress_warnings: [ndc_without_hcpcs]</code>
+in <code>meta.yaml</code>, alongside a caveat saying why. Dismissals show up in the
+validator output, so a reviewer sees what was waved through.</p>
+<h2 id="validator">Validator<a class="headerlink" href="#validator" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_validate.py<span class="w">            </span><span class="c1"># whole catalog</span>
+python<span class="w"> </span>scripts/vs_validate.py<span class="w"> </span>t2dm<span class="w">       </span><span class="c1"># one set</span>
+python<span class="w"> </span>scripts/vs_validate.py<span class="w"> </span>--strict<span class="w">   </span><span class="c1"># warnings fail too (use in CI)</span>
+</code></pre></div>
+
+<p>Beyond schema checks it looks for the errors that survive human review: a set
+spanning October 2015 with only one ICD vocabulary; a procedure set with CPT
+but no ICD-PCS; a drug set with NDCs but no ingredient RxCUIs; an exact match
+on a 3-character ICD-10 category that is not billable; a prefix on a full
+billable code; a stale materialization date.</p>
+<p><code>vs_build.py</code> refuses to run while errors exist. A format compiled from a
+broken definition fails silently downstream, which is the entire thing this
+library exists to prevent.</p>
+<h2 id="seed-sets">Seed sets<a class="headerlink" href="#seed-sets" title="Link to this section">#</a></h2>
+<p>Three worked examples, each covering a different shape:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>id</th>
+<th>shape it demonstrates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>t2dm</code></td>
+<td>ICD-9/ICD-10 span; ICD-9 fifth digit carrying type, which a prefix would destroy</td>
+</tr>
+<tr>
+<td><code>sglt2i</code></td>
+<td>concept-level drug — RxNorm ingredients as the definition, NDCs as a dated materialization</td>
+</tr>
+<tr>
+<td><code>tka</code></td>
+<td>procedure needing CPT <em>and</em> ICD-PCS, because inpatient and outpatient code it differently</td>
+</tr>
+</tbody>
+</table></div>
+<p>All three are <code>status: draft</code> and <code>maintainer: TBD</code>. Review them against their
+sources before promoting to <code>reviewed</code>.</p>
+<h2 id="related">Related<a class="headerlink" href="#related" title="Link to this section">#</a></h2>
+<p><code>codes-medicare</code> skill — which CoDES table holds which variable in which year.
+This library says <em>which codes</em>; that skill says <em>which column</em>. Use both.</p>
+  </article>
+  <footer class="page-footer">
+    <p>Source: <code>docs/index.md</code> &middot; rebuild with <code>python3 build.py</code></p>
+  </footer>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project context — what to upload, and what not to — Value set library</title>
+<meta name="description" content="Project knowledge is loaded on every message in the project. Everything in it">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/highlight.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#128203;</text></svg>">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="layout">
+<header class="sidebar">
+  <div class="brand">
+    <a href="index.html">Value set library</a>
+    <p>Reusable, versioned code lists for claims research</p>
+  </div>
+  <nav class="site-nav" aria-label="Site">
+    <ul>
+      <li><a href="index.html">Overview</a></li>
+      <li><a href="process.html">Process</a></li>
+      <li><a href="governance.html">Governance</a></li>
+      <li><a href="project-instructions.html">Project instructions</a></li>
+      <li><a href="project-context.html" class="current" aria-current="page">Project context</a></li>
+    </ul>
+  </nav>
+  <nav class="page-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ul>
+      <li><a href="#upload-these">Upload these</a></li>
+      <li><a href="#do-not-upload">Do not upload</a></li>
+      <li><a href="#refresh-cadence">Refresh cadence</a></li>
+      <li><a href="#what-lives-where">What lives where</a></li>
+      <li><a href="#a-note-on-the-first-session">A note on the first session</a></li>
+    </ul>
+  </nav>
+
+</header>
+<main id="main">
+  <article class="prose">
+<h1 id="project-context-what-to-upload-and-what-not-to">Project context — what to upload, and what not to<a class="headerlink" href="#project-context-what-to-upload-and-what-not-to" title="Link to this section">#</a></h1>
+<p>Project knowledge is loaded on every message in the project. Everything in it
+costs context permanently, so the test for inclusion is: <strong>would I have to
+paste this into a conversation more than once a month?</strong> If not, leave it out
+and let me search or ask.</p>
+<h2 id="upload-these">Upload these<a class="headerlink" href="#upload-these" title="Link to this section">#</a></h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>file</th>
+<th>why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PROCESS.md</code></td>
+<td>The SOP. The thing you would otherwise re-explain every time.</td>
+</tr>
+<tr>
+<td><code>build/registry.csv</code></td>
+<td>One row per value set. Makes "do we already have a GLP-1 set?" answerable without you uploading anything.</td>
+</tr>
+<tr>
+<td><code>build/ingredients.csv</code></td>
+<td>18,507 ingredient concepts with product counts. Turns "which RxCUI is bexagliflozin, and does it have products?" into a lookup instead of an API call.</td>
+</tr>
+<tr>
+<td>One reviewed <code>meta.yaml</code></td>
+<td>A worked example is worth more than a schema description. Use your best set once you have one.</td>
+</tr>
+</tbody>
+</table></div>
+<p>That is it. Four files.</p>
+<h2 id="do-not-upload">Do not upload<a class="headerlink" href="#do-not-upload" title="Link to this section">#</a></h2>
+<p><strong><code>build/all_codes.csv</code></strong> — thousands of NDC rows, almost never needed whole. If
+a specific set's codes matter, paste that one <code>codes.csv</code>.</p>
+<p><strong>The scripts.</strong> I can read them when you paste one or ask about it. Loading
+them permanently buys nothing and costs on every message.</p>
+<p><strong>The skill.</strong> <code>value-sets</code> is installed at the account level and loads on
+demand. Uploading it duplicates it into context permanently — the opposite of
+what a skill is for.</p>
+<p><strong>Anything that came off the VM.</strong> NDC lists are not disclosive; anything
+computed on your extract is. Reconciliation output in particular stays on the
+VM — do not paste the counts in to ask about them. Describe the shape of the
+problem instead, which is all I need to help.</p>
+<h2 id="refresh-cadence">Refresh cadence<a class="headerlink" href="#refresh-cadence" title="Link to this section">#</a></h2>
+<p>Project knowledge is a snapshot, not a live link. Re-upload:</p>
+<ul>
+<li><code>registry.csv</code> — whenever you add or promote a set</li>
+<li><code>ingredients.csv</code> — annually, or after a rebuild</li>
+<li><code>PROCESS.md</code> — when you change the process, which should be rare</li>
+</ul>
+<p>If a session seems to be working from a stale registry, that is the cause.</p>
+<h2 id="what-lives-where">What lives where<a class="headerlink" href="#what-lives-where" title="Link to this section">#</a></h2>
+<p>Three layers, and putting something in the wrong one is the usual reason a
+setup feels heavy:</p>
+<p><strong>Project instructions</strong> — always true, rarely changes. Who you are, the
+ingredient-level rule, the established facts, cell suppression.</p>
+<p><strong>Project knowledge</strong> — reference material you would otherwise paste. The four
+files above.</p>
+<p><strong>The <code>value-sets</code> skill</strong> — procedural knowledge that loads only when relevant.
+Schema details, code-system traps, authoring guidance. Account-level, so it
+works in this project, the general library project, and plain chats alike.</p>
+<p>The skill stays as-is. It covers ICD and CPT too, which this project does not
+use — that costs nothing, because skill content only loads when a task actually
+calls for it. Scoping a second drugs-only skill would create two things to
+maintain and a real chance they drift apart.</p>
+<h2 id="a-note-on-the-first-session">A note on the first session<a class="headerlink" href="#a-note-on-the-first-session" title="Link to this section">#</a></h2>
+<p>Start one conversation in the new project and ask for something small — "add a
+GLP-1 receptor agonist value set." That tells you whether the instructions,
+knowledge, and skill are pulling together before you have built anything on
+top of them. Check specifically that it goes to the ingredient level unprompted
+and asks about combination products; if it starts by producing NDCs, the
+instructions did not land.</p>
+  </article>
+  <footer class="page-footer">
+    <p>Source: <code>docs/project-context.md</code> &middot; rebuild with <code>python3 build.py</code></p>
+  </footer>
+</main>
+</div>
+</body>
+</html>

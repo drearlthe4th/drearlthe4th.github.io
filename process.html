@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process — building an NDC value set — Value set library</title>
+<meta name="description" content="The standing procedure. Follow it in order; the order is load-bearing in two">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/highlight.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#128203;</text></svg>">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="layout">
+<header class="sidebar">
+  <div class="brand">
+    <a href="index.html">Value set library</a>
+    <p>Reusable, versioned code lists for claims research</p>
+  </div>
+  <nav class="site-nav" aria-label="Site">
+    <ul>
+      <li><a href="index.html">Overview</a></li>
+      <li><a href="process.html" class="current" aria-current="page">Process</a></li>
+      <li><a href="governance.html">Governance</a></li>
+      <li><a href="project-instructions.html">Project instructions</a></li>
+      <li><a href="project-context.html">Project context</a></li>
+    </ul>
+  </nav>
+  <nav class="page-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ul>
+      <li><a href="#the-shape-of-a-drug-value-set">The shape of a drug value set</a></li>
+      <li><a href="#1-scope-the-construct">1. Scope the construct</a></li>
+      <li><a href="#2-resolve-ingredients">2. Resolve ingredients</a></li>
+      <li><a href="#3-build-the-ndc-list">3. Build the NDC list</a></li>
+      <li><a href="#4-verify-against-the-claims">4. Verify against the claims</a></li>
+      <li><a href="#5-resolve-the-unadjudicated">5. Resolve the unadjudicated</a></li>
+      <li><a href="#6-promote">6. Promote</a></li>
+      <li><a href="#7-use-it-in-a-study">7. Use it in a study</a></li>
+      <li><a href="#maintenance">Maintenance</a></li>
+      <li><a href="#thresholds">Thresholds</a></li>
+    </ul>
+  </nav>
+
+</header>
+<main id="main">
+  <article class="prose">
+<h1 id="process-building-an-ndc-value-set">Process — building an NDC value set<a class="headerlink" href="#process-building-an-ndc-value-set" title="Link to this section">#</a></h1>
+<p>The standing procedure. Follow it in order; the order is load-bearing in two
+places, noted where they occur.</p>
+<ul>
+<li><a href="#the-shape-of-a-drug-value-set">The shape of a drug value set</a></li>
+<li><a href="#1-scope-the-construct">1. Scope the construct</a></li>
+<li><a href="#2-resolve-ingredients">2. Resolve ingredients</a></li>
+<li><a href="#3-build-the-ndc-list">3. Build the NDC list</a></li>
+<li><a href="#4-verify-against-the-claims">4. Verify against the claims</a></li>
+<li><a href="#5-resolve-the-unadjudicated">5. Resolve the unadjudicated</a></li>
+<li><a href="#6-promote">6. Promote</a></li>
+<li><a href="#7-use-it-in-a-study">7. Use it in a study</a></li>
+<li><a href="#maintenance">Maintenance</a></li>
+<li><a href="#thresholds">Thresholds</a></li>
+</ul>
+<hr />
+<h2 id="the-shape-of-a-drug-value-set">The shape of a drug value set<a class="headerlink" href="#the-shape-of-a-drug-value-set" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code>catalog/&lt;id&gt;/meta.yaml    definition, ingredients, provenance, caveats
+catalog/&lt;id&gt;/codes.csv    materialized NDCs + J-codes, one row per code
+</code></pre></div>
+
+<p><code>meta.yaml</code> holds the durable definition — ingredient RxCUIs. <code>codes.csv</code> is
+derived and regenerable.</p>
+<p>If you only remember one thing: <strong>ingredients are the definition, NDCs are a
+snapshot.</strong> Reconciliation against the claims is what makes the snapshot
+trustworthy, and it happens on the VM.</p>
+<hr />
+<h2 id="1-scope-the-construct">1. Scope the construct<a class="headerlink" href="#1-scope-the-construct" title="Link to this section">#</a></h2>
+<p>Before touching a tool, write the <code>intent</code> — including what it excludes. Three
+decisions have to be made explicitly, because each silently changes the cohort:</p>
+<p><strong>Combinations in or out?</strong> A fixed-dose SGLT2i/metformin product is SGLT2i
+exposure and metformin exposure. For "metformin monotherapy" it is neither.
+Decide, and say so in <code>intent</code>. Do not filter it out later in the analysis and
+leave the value set ambiguous.</p>
+<p><strong>Route.</strong> Oral products are PDE dispensings. Injectables and infusions are
+usually Part B J-codes and will not appear in PDE at all. If the agent has both
+routes, the set needs both NDCs and J-codes, or an explicit statement that only
+the oral route is in scope.</p>
+<p><strong>Salt specificity.</strong> Define at <code>IN</code>, not <code>PIN</code>, unless the salt is the point.
+<code>PIN</code> does not generalize across formulations.</p>
+<p>Then check the library for a near-duplicate before creating anything. Two sets
+differing by three NDCs is how this degrades.</p>
+<h2 id="2-resolve-ingredients">2. Resolve ingredients<a class="headerlink" href="#2-resolve-ingredients" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code><span class="nf">library</span><span class="p">(</span><span class="n">rxref</span><span class="p">)</span>
+<span class="n">ing</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="nf">find_ingredients</span><span class="p">(</span><span class="s">"empagliflozin"</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>Confirm each RxCUI has marketed products before committing to it.</strong> Only 22.9%
+of RxNorm ingredients do. <code>build/ingredients.csv</code> is the local inventory:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">readr</span><span class="o">::</span><span class="nf">read_csv</span><span class="p">(</span><span class="s">"build/ingredients.csv"</span><span class="p">)</span><span class="w"> </span><span class="o">|&gt;</span>
+<span class="w">  </span><span class="n">dplyr</span><span class="o">::</span><span class="nf">filter</span><span class="p">(</span><span class="nf">grepl</span><span class="p">(</span><span class="s">"gliflozin"</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">),</span><span class="w"> </span><span class="n">has_products</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="m">1</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Do not use RxNorm's prescribable subset as this filter. It includes constituents
+that are never marketed alone — vaccine lipid excipients, for instance — and
+would let you scaffold a set around something with no product.</p>
+<p>Record each ingredient in <code>meta.yaml</code> under <code>concepts:</code> with <code>system: RXNORM</code>,
+<code>tty: IN</code>, the RxCUI, and the name.</p>
+<h2 id="3-build-the-ndc-list">3. Build the NDC list<a class="headerlink" href="#3-build-the-ndc-list" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code><span class="n">Rscript</span><span class="w"> </span><span class="n">scripts</span><span class="o">/</span><span class="n">vs_ndc_refresh.R</span><span class="w"> </span><span class="o">&lt;</span><span class="n">id</span><span class="o">&gt;</span><span class="w">            </span><span class="c1"># dry run first</span>
+<span class="n">Rscript</span><span class="w"> </span><span class="n">scripts</span><span class="o">/</span><span class="n">vs_ndc_refresh.R</span><span class="w"> </span><span class="o">&lt;</span><span class="n">id</span><span class="o">&gt;</span><span class="w"> </span><span class="o">--</span><span class="n">write</span>
+</code></pre></div>
+
+<p>Under the hood: <code>products_for_ingredients(concept_status =
+"active_and_historical")</code> then <code>map_rxcui_to_ndc(history = "all")</code>.</p>
+<p><strong><code>active_and_historical</code> is not optional.</strong> It recovers product concepts that
+are Obsolete, Remapped, Quantified, or NotCurrent. Active-only traversal finds
+retired NDCs hanging off live concepts but misses concepts retired outright —
+and those are your early-study-year products.</p>
+<p>Set <code>materialized_on</code>. Add any Part B J-codes by hand as <code>HCPCS</code> rows.</p>
+<h2 id="4-verify-against-the-claims">4. Verify against the claims<a class="headerlink" href="#4-verify-against-the-claims" title="Link to this section">#</a></h2>
+<p><strong>This is the step that makes the set trustworthy, and the order matters: build
+first, then verify.</strong> Verifying against claims you used to build the list proves
+nothing.</p>
+<p>On the VM, export distinct PDE NDCs with fill counts for the study window:</p>
+<div class="codehilite"><pre><span></span><code>proc sql;
+  <span class="k">create</span> <span class="k">table</span> ndc_obs <span class="k">as</span>
+  <span class="k">select</span> PROD_SRVC_ID <span class="k">as</span> ndc, count(*) <span class="k">as</span> n_fills
+  <span class="k">from</span> Y2012<span class="m">.</span>PDE <span class="c">/* ... through Y2023 */</span>
+  <span class="k">group</span> <span class="k">by</span> PROD_SRVC_ID
+  <span class="k">having</span> count(*) &gt;= <span class="m">11</span>;   <span class="c">/* DUA cell suppression */</span>
+<span class="kr">quit;</span>
+</code></pre></div>
+
+<p>Confirm the PDE product-identifier variable name and width for each year first —
+that is a <code>codes-medicare</code> lookup, and a width mismatch truncates silently.</p>
+<p>Then:</p>
+<div class="codehilite"><pre><span></span><code>make<span class="w"> </span>reconcile<span class="w"> </span><span class="nv">ID</span><span class="o">=</span>&lt;id&gt;<span class="w"> </span><span class="nv">OBS</span><span class="o">=</span>ndc_obs.csv
+</code></pre></div>
+
+<p>This classifies every unmatched NDC and prints a report. Nothing is written
+back to the repo — fill counts are CMS-derived and stay on the VM.</p>
+<h2 id="5-resolve-the-unadjudicated">5. Resolve the unadjudicated<a class="headerlink" href="#5-resolve-the-unadjudicated" title="Link to this section">#</a></h2>
+<p>Every unmatched NDC lands in one of four buckets. Each has a different meaning
+and a different fix:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>bucket</th>
+<th>what it means</th>
+<th>what to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>OBSOLETE</strong></td>
+<td>RxNorm knew it and dropped it</td>
+<td><strong>Your build is at fault.</strong> Re-run with <code>active_and_historical</code>; check the TTY set.</td>
+</tr>
+<tr>
+<td><strong>ALIEN</strong></td>
+<td>Never RxNorm-active</td>
+<td>Unreachable by any RxNorm traversal. RED BOOK / First Databank / Medi-Span / CCW crosswalk — or document the omission.</td>
+</tr>
+<tr>
+<td><strong>ABSENT</strong></td>
+<td>Not in RxNav at all</td>
+<td>Check 11-digit padding first. A mis-normalized NDC is indistinguishable from a missing one.</td>
+</tr>
+<tr>
+<td><strong>out of scope</strong></td>
+<td>Maps to a different ingredient</td>
+<td>Nothing — this is the reconciler working.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Work them in fill-count order. An unresolved NDC with 8,000 fills moves an
+exposure prevalence more than most modelling choices; one with 3 does not.</p>
+<p>ALIEN volume is a real property of the data, not a defect to hide. State it in
+<code>caveats</code> as prose — "a material share of pre-2015 fills map to NDCs RxNorm
+never carried" — rather than committing the count.</p>
+<h2 id="6-promote">6. Promote<a class="headerlink" href="#6-promote" title="Link to this section">#</a></h2>
+<div class="codehilite"><pre><span></span><code>make<span class="w"> </span>review<span class="w"> </span><span class="nv">ID</span><span class="o">=</span>&lt;id&gt;
+</code></pre></div>
+
+<p>Promotion is a human act, and the check it represents is yours: do not promote
+a set you have not reconciled against real dispensings for a comparable window.
+Nothing in the repo can enforce that, because the evidence lives on the VM —
+which makes it a discipline rather than a gate. Note the reconciliation date
+and window in the changelog entry so the claim is at least dated.</p>
+<p>Bump the version and write a changelog line. Semver carries meaning here:
+<strong>minor</strong> = NDCs added, cohorts can only grow; <strong>major</strong> = NDCs removed or
+intent changed, anything already published must be re-run or pinned.</p>
+<h2 id="7-use-it-in-a-study">7. Use it in a study<a class="headerlink" href="#7-use-it-in-a-study" title="Link to this section">#</a></h2>
+<p>Pin the version: <code>sglt2i@1.2.0</code>, never <code>sglt2i</code>.</p>
+<p>NDC matching is exact — no prefix ranges, no format trickery. A generated
+<code>PROC FORMAT</code> or a hash join both work:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">if</span> <span class="k">put</span>(PROD_SRVC_ID, $vs_sglt2i_ndc_i.) = <span class="s">'Y'</span>;
+</code></pre></div>
+
+<p>Re-reconcile if the study window differs from the last one you checked.
+Coverage is window-specific; verifying against 2012–2018 says nothing about
+2019–2023.</p>
+<hr />
+<h2 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Link to this section">#</a></h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>when</th>
+<th>what</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>per study</td>
+<td>reconcile every drug set against that study's window</td>
+</tr>
+<tr>
+<td>monthly, after the RxNorm release</td>
+<td>re-run refresh on active sets; diff the NDC list</td>
+</tr>
+<tr>
+<td>every 6 months</td>
+<td>review <code>materialized_on</code> dates; re-refresh anything stale</td>
+</tr>
+<tr>
+<td>annually</td>
+<td>rebuild <code>build/ingredients.csv</code></td>
+</tr>
+<tr>
+<td>before submission</td>
+<td>every set <code>reviewed</code>, versions pinned, limitations stated in the methods</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="thresholds">Thresholds<a class="headerlink" href="#thresholds" title="Link to this section">#</a></h2>
+<p>Judgment calls, not findings — revise once you have seen what your data does.
+Compute these on the VM from the reconciliation report; do not commit them.</p>
+<p>Let <em>unadjudicated share</em> mean unmatched fills over matched-plus-unmatched:</p>
+<ul>
+<li><strong>under 2%</strong> — fine for a primary exposure.</li>
+<li><strong>2–5%</strong> — usable; describe the dominant bucket in the methods.</li>
+<li><strong>over 5%</strong> — resolve the largest bucket before using it as a primary
+  exposure.</li>
+<li><strong>OBSOLETE present at all</strong> — a build defect regardless of size. Fix the
+  build rather than accepting it.</li>
+</ul>
+  </article>
+  <footer class="page-footer">
+    <p>Source: <code>docs/process.md</code> &middot; rebuild with <code>python3 build.py</code></p>
+  </footer>
+</main>
+</div>
+</body>
+</html>
