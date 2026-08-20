@@ -70,15 +70,15 @@ Wire it to a pre-commit hook or CI and the discipline stops depending on
 memory.</p>
 <p>Drugs get one extra step, because an NDC list is a dated snapshot rather than a
 definition:</p>
-<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_new.py<span class="w"> </span>glp1ra<span class="w"> </span>--name<span class="w"> </span><span class="s2">"GLP-1 receptor agonists"</span><span class="w"> </span>--type<span class="w"> </span>drug
+<div class="codehilite"><pre><span></span><code>Rscript<span class="w"> </span>scripts/vs_new.R<span class="w"> </span>glp1ra<span class="w"> </span>--name<span class="w"> </span><span class="s2">"GLP-1 receptor agonists"</span><span class="w"> </span>--type<span class="w"> </span>drug
 <span class="c1"># add ingredient RxCUIs to meta.yaml concepts:</span>
-python<span class="w"> </span>scripts/vs_ndc_refresh.py<span class="w"> </span>glp1ra<span class="w"> </span>--dry-run
-python<span class="w"> </span>scripts/vs_ndc_refresh.py<span class="w"> </span>glp1ra<span class="w"> </span>--write
+Rscript<span class="w"> </span>scripts/vs_ndc_refresh.R<span class="w"> </span>glp1ra<span class="w"> </span>--dry-run
+Rscript<span class="w"> </span>scripts/vs_ndc_refresh.R<span class="w"> </span>glp1ra<span class="w"> </span>--write
 </code></pre></div>
 
 <p>Then reconcile against the NDCs actually present in PDE — export
 <code>ndc,n_fills</code> from the VM and run:</p>
-<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_ndc_reconcile.py<span class="w"> </span>glp1ra<span class="w"> </span>--observed<span class="w"> </span>pde_ndcs.csv
+<div class="codehilite"><pre><span></span><code>Rscript<span class="w"> </span>scripts/vs_ndc_reconcile.R<span class="w"> </span>glp1ra<span class="w"> </span>--observed<span class="w"> </span>pde_ndcs.csv
 </code></pre></div>
 
 <p>RxNav's <code>getAllHistoricalNDCs</code> with <code>history=2</code> returns every NDC ever
@@ -117,9 +117,9 @@ validation error, because it nearly always means the hierarchy was misread.</p>
 in <code>meta.yaml</code>, alongside a caveat saying why. Dismissals show up in the
 validator output, so a reviewer sees what was waved through.</p>
 <h2 id="validator">Validator<a class="headerlink" href="#validator" title="Link to this section">#</a></h2>
-<div class="codehilite"><pre><span></span><code>python<span class="w"> </span>scripts/vs_validate.py<span class="w">            </span><span class="c1"># whole catalog</span>
-python<span class="w"> </span>scripts/vs_validate.py<span class="w"> </span>t2dm<span class="w">       </span><span class="c1"># one set</span>
-python<span class="w"> </span>scripts/vs_validate.py<span class="w"> </span>--strict<span class="w">   </span><span class="c1"># warnings fail too (use in CI)</span>
+<div class="codehilite"><pre><span></span><code>Rscript<span class="w"> </span>scripts/vs_validate.R<span class="w">            </span><span class="c1"># whole catalog</span>
+Rscript<span class="w"> </span>scripts/vs_validate.R<span class="w"> </span>t2dm<span class="w">       </span><span class="c1"># one set</span>
+Rscript<span class="w"> </span>scripts/vs_validate.R<span class="w"> </span>--strict<span class="w">   </span><span class="c1"># warnings fail too (use in CI)</span>
 </code></pre></div>
 
 <p>Beyond schema checks it looks for the errors that survive human review: a set
@@ -127,7 +127,7 @@ spanning October 2015 with only one ICD vocabulary; a procedure set with CPT
 but no ICD-PCS; a drug set with NDCs but no ingredient RxCUIs; an exact match
 on a 3-character ICD-10 category that is not billable; a prefix on a full
 billable code; a stale materialization date.</p>
-<p><code>vs_build.py</code> refuses to run while errors exist. A format compiled from a
+<p><code>vs_build.R</code> refuses to run while errors exist. A format compiled from a
 broken definition fails silently downstream, which is the entire thing this
 library exists to prevent.</p>
 <h2 id="seed-sets">Seed sets<a class="headerlink" href="#seed-sets" title="Link to this section">#</a></h2>

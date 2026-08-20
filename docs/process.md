@@ -83,7 +83,7 @@ Rscript scripts/vs_ndc_refresh.R <id> --write
 ```
 
 Under the hood: `products_for_ingredients(concept_status =
-"active_and_historical")` then `map_rxcui_to_ndc(history = "all")`.
+"active_and_historical")` then `map_rxcui_to_ndc(history = 2)`.
 
 **`active_and_historical` is not optional.** It recovers product concepts that
 are Obsolete, Remapped, Quantified, or NotCurrent. Active-only traversal finds

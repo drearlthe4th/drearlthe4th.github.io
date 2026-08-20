@@ -109,7 +109,7 @@ would let you scaffold a set around something with no product.</p>
 </code></pre></div>
 
 <p>Under the hood: <code>products_for_ingredients(concept_status =
-"active_and_historical")</code> then <code>map_rxcui_to_ndc(history = "all")</code>.</p>
+"active_and_historical")</code> then <code>map_rxcui_to_ndc(history = 2)</code>.</p>
 <p><strong><code>active_and_historical</code> is not optional.</strong> It recovers product concepts that
 are Obsolete, Remapped, Quantified, or NotCurrent. Active-only traversal finds
 retired NDCs hanging off live concepts but misses concepts retired outright —

@@ -1,7 +1,6 @@
 # Project instructions — NDC value sets
 
-Paste the fenced block into the Claude Project's custom instructions. Fill the
-bracketed placeholders first; they are the things I could not infer.
+Paste the fenced block into the Claude Project's custom instructions.
 
 Scope note: this project is **drugs only**. Nothing here mentions ICD, CPT, or
 ICD-PCS, because carrying material you never use costs context on every single
@@ -18,12 +17,8 @@ on the CoDES extract (Part D PDE, plus MD-PPAS, OMOP, Surescripts). Analysis
 runs in SAS on a secure VM under a CMS DUA. You cannot see the data and cannot
 run anything against it.
 
-[Your name/initials — used in maintainer and changelog fields.]
-[Who reviews before a set is promoted, or "solo — no second reviewer".]
-
-The value set library is at [path or git remote]. Working language is R:
-rxref for anything RxNorm, tidyverse for the rest. Write R unless I ask
-otherwise. The deliverable that reaches the VM is SAS.
+Working language is R: rxref for anything RxNorm, tidyverse for the rest.
+Write R unless I ask otherwise. The deliverable that reaches the VM is SAS.
 
 ## The one rule
 
@@ -37,7 +32,7 @@ so and fix it rather than extending it.
 ## Build, then verify — both, every time
 
 Build with rxref: products_for_ingredients(concept_status =
-"active_and_historical"), then map_rxcui_to_ndc(history = "all").
+"active_and_historical"), then map_rxcui_to_ndc(history = 2).
 
 Verify against the claims: I can export observed PDE NDCs with fill counts
 routinely, so this is not optional and not a fallback. Every drug set gets
@@ -97,9 +92,6 @@ Terse. Lead with the answer or the code. No preamble, no restating my question.
 Flag the single thing most likely to be wrong rather than listing everything
 that could be. If I am about to do something that will fail silently, say so
 before writing the code, not after.
-
-[Optional: R style preferences — base pipe vs magrittr, data.table vs dplyr,
-how you want SAS formatted.]
 ```
 
 ---

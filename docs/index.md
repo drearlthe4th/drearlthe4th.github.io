@@ -38,17 +38,17 @@ Drugs get one extra step, because an NDC list is a dated snapshot rather than a
 definition:
 
 ```bash
-python scripts/vs_new.py glp1ra --name "GLP-1 receptor agonists" --type drug
+Rscript scripts/vs_new.R glp1ra --name "GLP-1 receptor agonists" --type drug
 # add ingredient RxCUIs to meta.yaml concepts:
-python scripts/vs_ndc_refresh.py glp1ra --dry-run
-python scripts/vs_ndc_refresh.py glp1ra --write
+Rscript scripts/vs_ndc_refresh.R glp1ra --dry-run
+Rscript scripts/vs_ndc_refresh.R glp1ra --write
 ```
 
 Then reconcile against the NDCs actually present in PDE — export
 `ndc,n_fills` from the VM and run:
 
 ```bash
-python scripts/vs_ndc_reconcile.py glp1ra --observed pde_ndcs.csv
+Rscript scripts/vs_ndc_reconcile.R glp1ra --observed pde_ndcs.csv
 ```
 
 RxNav's `getAllHistoricalNDCs` with `history=2` returns every NDC ever
@@ -102,9 +102,9 @@ validator output, so a reviewer sees what was waved through.
 ## Validator
 
 ```bash
-python scripts/vs_validate.py            # whole catalog
-python scripts/vs_validate.py t2dm       # one set
-python scripts/vs_validate.py --strict   # warnings fail too (use in CI)
+Rscript scripts/vs_validate.R            # whole catalog
+Rscript scripts/vs_validate.R t2dm       # one set
+Rscript scripts/vs_validate.R --strict   # warnings fail too (use in CI)
 ```
 
 Beyond schema checks it looks for the errors that survive human review: a set
@@ -113,7 +113,7 @@ but no ICD-PCS; a drug set with NDCs but no ingredient RxCUIs; an exact match
 on a 3-character ICD-10 category that is not billable; a prefix on a full
 billable code; a stale materialization date.
 
-`vs_build.py` refuses to run while errors exist. A format compiled from a
+`vs_build.R` refuses to run while errors exist. A format compiled from a
 broken definition fails silently downstream, which is the entire thing this
 library exists to prevent.
 
