@@ -10,7 +10,7 @@ a Medicaid claim file, or a cannabis dispensation table.
 
 | | VM 1 | VM 2 |
 |---|---|---|
-| Contents | Medicare claims / enrollment | MEMORY medical cannabis dispensing + Medicaid |
+| Contents | Medicare claims / enrollment, **one folder per year** | MEMORY cannabis dispensing, Medicaid, crosswalk — three folders |
 | Driver | `dd_99_driver_medicare.sas` | `dd_99_driver_memory.sas` |
 | Linkage | between Medicare files only | MEMORY ↔ crosswalk ↔ Medicaid |
 
@@ -25,6 +25,35 @@ Inside VM 2, MEMORY ↔ Medicaid *is* a real question. The two files don't share
 an identifier, so `%dd_xwalk` runs the join through the crosswalk and measures
 what a crosswalk breaks (see item 10 below for how to read the answer).
 
+## One folder per year (VM 1)
+
+**Do not use a concatenated libref to profile this.** On a *read*, a
+concatenated library resolves a member name to the first occurrence it finds
+and stops — `MED.BCARRIER` is 2016's `BCARRIER`, not the years stacked. Every
+count, value catalog and date range you then produce describes 2016 while
+being labelled as the panel, with no error, no warning and no note.
+
+`dd_08_panel.sas` assigns **one libref per year** instead (`MED2016`,
+`MED2017`, …). That isn't a workaround — it keeps the year attached to every
+row of output, which is what makes the panel questions answerable at all.
+Because `dataset` is then `MED2016.BCARRIER`, the year flows through the whole
+system with no extra parameter.
+
+It then adds the checks a pooled dictionary structurally cannot do:
+
+| Macro | Answers |
+|---|---|
+| `%dd_libyears` | Assign a libref per year folder; **report** folders that aren't there rather than skipping them |
+| `%dd_inventory` | Which tables exist in which years — this is where a mid-panel rename shows up |
+| `%dd_sweep` | Profile every table in every year, driven by `DICTIONARY.TABLES` rather than a list you typed, so a rename can't cause a skip |
+| `%dd_panel_vars` | Variable × year presence, **type changes** (hard `ERROR` on a `SET`) and **length changes** (silent truncation), plus variables present-but-100%-empty in some years |
+| `%dd_panel_values` | Code values by year — a value that only exists from 2018 means filtering on it drops your earlier years |
+| `%dd_panel_stats` | Year-over-year shifts in numeric distributions: a real change, a units change, or a definition change |
+| `%dd_stackyears` | A `SET` across years that aborts on a type change and generates the `LENGTH` statements that prevent truncation, tagging every row with its source year |
+
+**VM 2's three folders need nothing special** — three `libname` statements,
+which is what the driver already does.
+
 ## Files
 
 | File | Contents |
@@ -37,6 +66,7 @@ what a crosswalk breaks (see item 10 below for how to read the answer).
 | `dd_05_patient.sas` | Date profiling, patient-level rollups, cross-dataset linkage, key uniqueness |
 | `dd_06_report.sas` | Master dictionary assembly, Excel/PDF export, `%dd_profile` one-call wrapper |
 | `dd_07_longitudinal.sas` | Volume by calendar period, inter-event intervals, per-person rates |
+| `dd_08_panel.sas` | Per-year libraries, table inventory, variable × year matrix, type/length change detection, value drift by year, guarded stacking |
 | `dd_98_selftest.sas` | Runs the whole battery on SASHELP tables. **Run this first.** |
 | `dd_99_driver_medicare.sas` | VM 1 driver. Edit this one inside the Medicare enclave. |
 | `dd_99_driver_memory.sas` | VM 2 driver. Edit this one inside the cannabis/Medicaid enclave. |
@@ -142,14 +172,16 @@ both ends and makes a one-time patient look like a zero-day observation —
 pass a real eligibility window whenever one exists. STEP 6 of each driver has
 the pattern; both need your table names to become real.
 
-**8. Panel drift is invisible in a pooled dictionary.** If a code value only
-exists from 2016, or a variable is dropped for two years and comes back, a
-union of all years hides it. Run the profile per year (a `where=` on the
-dataset) and diff the value catalogs — on a multi-year extract that comparison
-is the single most useful thing you can do with this output. `%dd_calendar`
-now catches the crudest version of this (periods with no rows at all), but not
-value-level drift. I didn't build the year-by-year loop because I can't see
-how your files are split; tell me and I'll add it.
+**8. Panel drift is invisible in a pooled dictionary — now handled.** Since
+the Medicare data is one folder per year, `dd_08_panel.sas` does the
+year-by-year sweep and the diffs: variable × year presence, type and length
+changes, code values by year, and distribution shifts between adjacent years.
+See the section above. The two changes worth knowing about before you pool
+anything: a **type change** across years is a hard `ERROR` on a `SET`, so at
+least you're told; a **length change** is not an error at all — the `SET`
+takes its length from the first dataset in the list and silently truncates
+every longer value in every later year. `%dd_stackyears` generates the
+`LENGTH` statements that prevent it.
 
 **9. The dispensing data is an event history, and that needs its own module.**
 `dd_07` adds three things the column-by-column dictionary can't show:

@@ -4,8 +4,12 @@
 
   DEPLOYED SEPARATELY INTO TWO ISOLATED ENCLAVES
   ----------------------------------------------
-    VM 1  Medicare claims / enrollment extracts. Nothing else lives here.
-    VM 2  MEMORY medical cannabis dispensing data + Medicaid.
+    VM 1  Medicare claims / enrollment extracts, ONE FOLDER PER YEAR.
+          Nothing else lives here. See dd_08_panel.sas -- and do not use a
+          concatenated libref, which silently profiles only the first year.
+    VM 2  MEMORY medical cannabis dispensing data, Medicaid, and the
+          MEMORY-Medicaid crosswalk, in three folders. One libname each;
+          nothing special required.
 
   The two VMs do not talk to each other and the populations are not
   linkable across them. Copy this folder into each VM and run it there with
@@ -71,6 +75,11 @@
   16. Analyst annotations ........ %DD_ANNOTATE records a caveat against a
                                    variable in the dictionary itself, so the
                                    qualification ships with the deliverable
+  17. Panel checks (dd_08) ....... for data stored one folder per year:
+                                   table inventory by year, variable x year
+                                   presence, type and length changes across
+                                   years, code values by year, year-over-year
+                                   distribution shifts, and a guarded stack
 
   PASSES OVER THE DATA (cost control)
   -----------------------------------

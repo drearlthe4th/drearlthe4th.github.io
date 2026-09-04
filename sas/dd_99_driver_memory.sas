@@ -24,6 +24,7 @@
 %include "&DDPATH/dd_05_patient.sas";
 %include "&DDPATH/dd_06_report.sas";
 %include "&DDPATH/dd_07_longitudinal.sas";
+%include "&DDPATH/dd_08_panel.sas";   /* only needed if any file is split by year */
 
 %let DD_OUT       = /workspace/output/datadict;   /* <-- must already exist */
 %let DD_PROJECT   = memory_medicaid;
@@ -41,6 +42,10 @@
 %let DD_MAXLEVELS = 2000;
 %let DD_GRAPHS    = Y;
 
+/*  Three sources in three folders is exactly the normal case: one libname
+    each. Nothing special is required. (Contrast VM 1, where Medicare is one
+    folder PER YEAR and needs dd_08_panel.sas -- see that driver's header for
+    why a concatenated libref is the wrong answer there.)                    */
 libname MEMORY "/data/memory"   access=readonly;  /* <-- EDIT: cannabis     */
 libname MCAID  "/data/medicaid" access=readonly;  /* <-- EDIT: Medicaid     */
 libname XWALK  "/data/xwalk"    access=readonly;  /* <-- EDIT: crosswalk    */
