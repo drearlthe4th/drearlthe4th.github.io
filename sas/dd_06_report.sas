@@ -170,7 +170,17 @@
     proc print data=dd_patient_meta noobs label; run;
   %end;
 
-  ods excel options(sheet_name='10 Linkage and keys');
+  ods excel options(sheet_name='10 Event history');
+  %if %dd_dsexist(dd_calendar) %then %do;
+    title "Volume by calendar period (check the first and last period for partial data)";
+    proc print data=dd_calendar noobs label; run;
+  %end;
+  %if %dd_dsexist(dd_interval_summary) %then %do;
+    title "Inter-event intervals";
+    proc print data=dd_interval_summary noobs label; run;
+  %end;
+
+  ods excel options(sheet_name='11 Linkage and keys');
   %if %dd_dsexist(dd_linkage) %then %do;
     title "Cross-dataset linkage"; proc print data=dd_linkage noobs label; run;
   %end;
@@ -190,10 +200,15 @@
 -----------------------------------------------------------------------------*/
 %macro dd_profile(lib=,mem=,
                   id=,claimid=,drugvar=,datevar=,sumvars=,catvars=,
-                  target=,key=,force=,plotvars=,logscale=Y,graphs=&DD_GRAPHS);
-  %local _g ptds;
+                  target=,key=,force=,plotvars=,logscale=Y,graphs=&DD_GRAPHS,
+                  datefmt=SAS,interval=month,gapdays=90,events=Y);
+  %local _g ptds evds ivds stub;
   %let _g=&DD_GRAPHS; %let DD_GRAPHS=&graphs;
-  %let ptds=dd_pt_%substr(&mem,1,%sysfunc(min(%length(&mem),25)));
+  /* WORK dataset names are capped at 32 characters */
+  %let stub=%substr(&mem,1,%sysfunc(min(%length(&mem),25)));
+  %let ptds=dd_pt_&stub;
+  %let evds=dd_ev_&stub;
+  %let ivds=dd_iv_&stub;
 
   %if %dd_dsexist(&lib..&mem)=0 %then %do;
     %dd_warn(&lib..&mem does not exist - skipped.); %let DD_GRAPHS=&_g; %return;
@@ -221,18 +236,26 @@
     %dd_univar(lib=&lib,mem=&mem,vars=&plotvars,logscale=&logscale);
     %dd_bivar( lib=&lib,mem=&mem,vars=&plotvars,target=&target,catvars=&catvars);
     %dd_corr(  lib=&lib,mem=&mem,vars=&plotvars);
-    %if %length(&id) %then
-      %dd_patient(lib=&lib,mem=&mem,id=&id,claimid=&claimid,drugvar=&drugvar,
-                  datevar=&datevar,sumvars=&sumvars,catvars=&catvars,
-                  ptout=&ptds);;
-    %dd_odsclose;
   %end;
-  %else %do;
+
+  /* Person-level and event-history tables are computed whether or not
+     graphics are on; each of these macros suppresses its own plots when
+     DD_GRAPHS=N, so the numbers are never withheld along with the pictures. */
+  %if %length(&id) %then
+    %dd_patient(lib=&lib,mem=&mem,id=&id,claimid=&claimid,drugvar=&drugvar,
+                datevar=&datevar,sumvars=&sumvars,catvars=&catvars,
+                ptout=&ptds);;
+
+  %if %upcase(&events)=Y and %length(&datevar) %then %do;
+    %dd_calendar(lib=&lib,mem=&mem,datevar=&datevar,id=&id,
+                 interval=&interval,datefmt=&datefmt);
     %if %length(&id) %then
-      %dd_patient(lib=&lib,mem=&mem,id=&id,claimid=&claimid,drugvar=&drugvar,
-                  datevar=&datevar,sumvars=&sumvars,catvars=&catvars,
-                  ptout=&ptds);;
+      %dd_interval(lib=&lib,mem=&mem,id=&id,datevar=&datevar,
+                   datefmt=&datefmt,gapdays=&gapdays,
+                   evout=&evds,ptout=&ivds);;
   %end;
+
+  %if %upcase(&DD_GRAPHS)=Y %then %dd_odsclose;;
 
   %let DD_GRAPHS=&_g;
   %put NOTE: ================ DONE &lib..&mem ================;

@@ -3,14 +3,19 @@
   Run this FIRST, before pointing anything at the real data.
 
   It profiles two SASHELP tables that stand in for the two real ones:
-      SASHELP.HEART  -> a person-level clinical file, like the memory data
-                        (numeric scores, character status fields, missingness)
-      SASHELP.PRICEDATA -> a repeated-measures panel, like a claims file
-                        (many rows per unit, dates, money)
+      SASHELP.HEART     -> a person-level clinical file
+                           (numeric measures, character status, missingness)
+      SASHELP.PRICEDATA -> a repeated-event panel, the shape of a claims file
+                           or a dispensing file (many rows per unit, dates,
+                           money)
+
+  It is deliberately run against SASHELP rather than your data, so it is safe
+  to run in either enclave.
   If this produces a workbook and a graphics PDF without errors, the program
   is working and any later failure is about your data, not the code.
 =============================================================================*/
 
+/* assumes dd_00 .. dd_07 have already been %included by a driver */
 %let DD_OUT = %sysfunc(pathname(work));   /* selftest writes to WORK */
 %let DD_PROJECT = selftest;
 
@@ -19,7 +24,7 @@ proc datasets library=work nolist nowarn;
   delete dd_tables dd_columns dd_missing dd_numstats dd_outliers
          dd_cardinality dd_values dd_levelcount dd_corrpairs dd_dates
          dd_patient_summary dd_patient_meta dd_linkage dd_duplicates
-         dd_dictionary;
+         dd_calendar dd_interval_summary dd_dictionary;
 quit;
 
 %dd_profile(lib=SASHELP, mem=HEART,
@@ -29,8 +34,9 @@ quit;
 
 %dd_profile(lib=SASHELP, mem=PRICEDATA,
             id=regionName, claimid=productName, datevar=date,
-            sumvars=sale price, catvars=regionName,
+            datefmt=SAS, sumvars=sale price, catvars=regionName,
             key=regionName productName date,
+            interval=month, gapdays=60,
             logscale=Y);
 
 %dd_assemble;

@@ -1,7 +1,20 @@
 /*=============================================================================
   DD_00_SETUP.SAS
   Comprehensive Data Dictionary & Profiling System
-  Targets: Medicare claims/enrollment extracts + memory (cognitive) study data
+
+  DEPLOYED SEPARATELY INTO TWO ISOLATED ENCLAVES
+  ----------------------------------------------
+    VM 1  Medicare claims / enrollment extracts. Nothing else lives here.
+    VM 2  MEMORY medical cannabis dispensing data + Medicaid.
+
+  The two VMs do not talk to each other and the populations are not
+  linkable across them. Copy this folder into each VM and run it there with
+  its own driver. Do not attempt to merge the two workbooks: the enclaves
+  have separate data use agreements, and a joined output would be a
+  disclosure event, not an analysis.
+
+  Within VM 2, MEMORY and Medicaid may well be linkable -- that join is a
+  legitimate question and %DD_LINK answers it.
 
   DESIGN PRINCIPLE
   ----------------
@@ -9,7 +22,8 @@
   length, format and code value is discovered at run time from
   DICTIONARY.TABLES / DICTIONARY.COLUMNS and from the data itself. The same
   program therefore runs unchanged against a Part D PDE file, an MBSF, a
-  carrier line file, or a memory-clinic assessment table.
+  carrier line file, a Medicaid claim file, or a cannabis dispensation
+  table.
 
   WHAT IT PRODUCES
   ----------------
@@ -41,7 +55,10 @@
                                    detection, impossible/future dates
   11. Patient-level rollups ...... records / claims / drugs / dates / spend
                                    per person, concentration, follow-up span
-  12. Cross-dataset linkage ...... ID overlap between Medicare and memory data
+  12. Within-VM linkage .......... ID overlap between two datasets in the
+                                   SAME enclave (MEMORY <-> Medicaid)
+  15. Event history .............. volume by calendar period, inter-event
+                                   intervals, per-person rates (dd_07)
   13. Duplicate key diagnostics .. exact and key-level duplication
   14. Disclosure suppression ..... DUA cell suppression (default n < 11) with
                                    complementary suppression, applied to
@@ -66,7 +83,7 @@
     ... (dd_01 .. dd_06) ...
     then edit and run dd_99_driver.sas
 
-  Author: generated for the Medicare + memory profiling project.
+  Author: generated for the Medicare and MEMORY/Medicaid profiling project.
 =============================================================================*/
 
 /*-----------------------------------------------------------------------------
@@ -90,7 +107,10 @@
 ;
 
 %let DD_OUT          = /workspace/output/datadict;   /* <-- EDIT */
-%let DD_PROJECT      = medicare_memory;              /* <-- EDIT */
+%let DD_PROJECT      = enclave_profile;              /* <-- EDIT per VM */
+/* CMS DUAs set this at 11. A state Medicaid agreement or a cannabis
+   registry agreement may set it higher or lower -- CONFIRM the number for
+   each enclave against its own DUA rather than inheriting the CMS value.   */
 %let DD_MINCELL      = 11;
 %let DD_MAXLEVELS    = 500;
 %let DD_SCREENOBS    = 250000;
@@ -105,7 +125,10 @@
 /* Variables matching this regex are never enumerated value-by-value and never
    plotted. They are direct identifiers or unbounded-cardinality keys. Keep
    BENE_ID out of the value catalog but still usable as the patient key.      */
-%let DD_IDPATTERN = /(BENE_ID|CLM_ID|_ID$|^ID$|NPI|UPIN|CCN|HIC|MBI|SSN|TAX_NUM|PRVDR_NUM|CTRL_NUM|DOB|BIRTH|NAME|ADDR|ZIP5|ZIP9|EMAIL|PHONE)/i;
+/* Covers all three data estates: Medicare (BENE_ID, CLM_ID, NPI, HIC, MBI),
+   Medicaid (MSIS_ID, submitting-state IDs), and the MEMORY cannabis registry
+   (patient/registry/certification/dispensary/practitioner identifiers).     */
+%let DD_IDPATTERN = /(BENE_ID|CLM_ID|MSIS|_ID$|^ID$|IDNUM|NPI|UPIN|CCN|HIC|MBI|SSN|TAX_NUM|PRVDR_NUM|CTRL_NUM|REGISTR|CERT_NUM|PATIENT_NUM|CARD_NUM|DISPENSAR|LICENS|TRANSACT|RECEIPT|MRN|DOB|BIRTH|NAME|ADDR|ZIP5|ZIP9|EMAIL|PHONE)/i;
 
 /* Text values that are structurally present but semantically missing.        */
 %let DD_SENTINELS = 'NA','N/A','NULL','UNK','UNKN','UNKNOWN','MISSING','NONE','.','-','--','~','?','*','#','9999','99999';

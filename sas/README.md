@@ -1,10 +1,28 @@
-# Medicare + Memory Data Dictionary & Profiling System (SAS)
+# Data Dictionary & Profiling System (SAS)
 
 A generic, metadata-driven profiling program. **No table name, variable name,
 type or code value is hardcoded.** Everything is discovered at run time from
 `DICTIONARY.TABLES` / `DICTIONARY.COLUMNS` and from the data itself, so the
 same code runs unchanged on a Part D PDE file, an MBSF, a carrier line file,
-and the memory/cognitive assessment data.
+a Medicaid claim file, or a cannabis dispensation table.
+
+## Two isolated enclaves
+
+| | VM 1 | VM 2 |
+|---|---|---|
+| Contents | Medicare claims / enrollment | MEMORY medical cannabis dispensing + Medicaid |
+| Driver | `dd_99_driver_medicare.sas` | `dd_99_driver_memory.sas` |
+| Linkage | between Medicare files only | MEMORY ↔ Medicaid |
+
+The VMs do not talk to each other and the populations are **not linkable
+across them**. Copy this folder into each VM and run it there with its own
+driver. There is no code here that could join across enclaves and there
+should not be — the two have separate data use agreements, and a joined
+output would be a disclosure event rather than an analysis. Don't merge the
+two workbooks either.
+
+Inside VM 2, MEMORY ↔ Medicaid *is* a real question, and `%dd_link` answers
+it (see item 10 below for how to read the answer).
 
 ## Files
 
@@ -17,13 +35,15 @@ and the memory/cognitive assessment data.
 | `dd_04_graphics.sas` | Histograms, box plots, pair plot, target panels, Pearson + Spearman heat maps |
 | `dd_05_patient.sas` | Date profiling, patient-level rollups, cross-dataset linkage, key uniqueness |
 | `dd_06_report.sas` | Master dictionary assembly, Excel/PDF export, `%dd_profile` one-call wrapper |
+| `dd_07_longitudinal.sas` | Volume by calendar period, inter-event intervals, per-person rates |
 | `dd_98_selftest.sas` | Runs the whole battery on SASHELP tables. **Run this first.** |
-| `dd_99_driver.sas` | The only file you edit. Libnames, variable roles, what to run. |
+| `dd_99_driver_medicare.sas` | VM 1 driver. Edit this one inside the Medicare enclave. |
+| `dd_99_driver_memory.sas` | VM 2 driver. Edit this one inside the cannabis/Medicaid enclave. |
 
 ## How to run
 
-1. Copy the folder to the VM and set `DDPATH`, `DD_OUT`, and the libnames in
-   `dd_99_driver.sas`. `DD_OUT` must already exist.
+1. Copy the folder into the VM and set `DDPATH`, `DD_OUT`, `DD_MINCELL` and
+   the libnames in that VM's driver. `DD_OUT` must already exist.
 2. Run `dd_98_selftest.sas`. If it produces a workbook and a graphics PDF with
    no errors, the program works and any later failure is about your data.
 3. Run STEP 3a in the driver (`graphs=N`) on each real dataset. This needs no
@@ -44,8 +64,8 @@ patient-level rollups, and linkage/key checks.
 **`<project>_<table>_graphics.pdf` / `.html`** — missing-value bars, histogram
 and density panels, box-plot panels, a standardized all-variable box plot,
 the pair plot, target panels, both correlation heat maps, cardinality profile,
-top-values panels, patient-level distributions, and a utilization
-concentration curve.
+top-values panels, patient-level distributions, a utilization concentration
+curve, a volume-over-time series, and an inter-event interval histogram.
 
 ## Design decisions you should know about
 
@@ -76,13 +96,13 @@ names (`DD_IDPATTERN`) are excluded by name, and everything else by measured
 cardinality. That is a deliberate departure from "every variable" and the two
 knobs to change it are documented above.
 
-**2. Nothing that leaves the VM is safe by default.** Full value catalogs on
-claims data contain cells of size 1. `%dd_export(export=SHARE)` applies
+**2. Nothing that leaves an enclave is safe by default.** Full value catalogs
+on claims or registry data contain cells of size 1. `%dd_export(export=SHARE)` applies
 primary suppression at n < 11 *and* complementary suppression, and blanks the
 percentages along with the counts — suppressing `n` while publishing `%` does
 nothing, since the count is recoverable from the denominator.
 
-**3. `NMISS` undercounts missing in CMS data.** Missing arrives as `''`, `~`,
+**3. `NMISS` undercounts missing in administrative data.** Missing arrives as `''`, `~`,
 `U`, `UNK`, `NA`, a special missing `.A`–`.Z`, or a sentinel like `9999`. And
 in payment fields a `0` is a real "no payment", not a missing — treating the
 two alike is the most common cost-analysis error. The program counts all of
@@ -95,8 +115,8 @@ disagree, is a wrong answer with no error message. `%dd_dates` reports which
 form each variable is actually in, plus future dates, pre-1900 dates, and
 impossible `YYYYMMDD` values.
 
-**5. Correlation on claims variables is usually the wrong tool, so both
-versions are produced.** Pearson answers "is this linear", Spearman answers
+**5. Correlation on claims and dispensing variables is usually the wrong tool,
+so both versions are produced.** Pearson answers "is this linear", Spearman answers
 "is this monotone". On skewed, zero-inflated cost variables they routinely
 disagree, and the disagreement is the finding, so the pair table reports both
 and flags gaps over 0.2. Note that neither measures association between two
@@ -111,41 +131,70 @@ inside it describes people, and the concentration curve shows how badly the
 two diverge.
 
 **7. Counts per patient need a denominator you don't have yet.** "Average
-prescriptions per patient" is not comparable across people with different
-amounts of enrollment: three months and two fills is a *higher* rate than
-twelve months and six. The right denominator is enrollment months from the
-MBSF, not the claim file. STEP 6 of the driver has the pattern; it needs your
-MBSF table name to become real.
+prescriptions per patient" and "average dispensations per patient" are not
+comparable across people observed for different lengths of time: three months
+and two events is a *higher* rate than twelve months and six. In VM 1 the
+denominator is enrollment months from the MBSF, not the claim file. In VM 2
+it's a registry certification window or Medicaid eligibility months.
+`%dd_rates` defaults to the observed first-to-last span, which is censored at
+both ends and makes a one-time patient look like a zero-day observation —
+pass a real eligibility window whenever one exists. STEP 6 of each driver has
+the pattern; both need your table names to become real.
 
-**8. Panel-year drift is invisible in a pooled dictionary.** If a code value
-only exists from 2016, or a variable is dropped for two years and comes back,
-a union of all years hides it. Run the profile per year (a `where=` on the
-libname or dataset) and diff the value catalogs — that comparison is the
-single most useful thing you can do with this output on a multi-year extract.
-I did not build the year-by-year loop in because I couldn't see how your files
-are split; tell me and I'll add it.
+**8. Panel drift is invisible in a pooled dictionary.** If a code value only
+exists from 2016, or a variable is dropped for two years and comes back, a
+union of all years hides it. Run the profile per year (a `where=` on the
+dataset) and diff the value catalogs — on a multi-year extract that comparison
+is the single most useful thing you can do with this output. `%dd_calendar`
+now catches the crudest version of this (periods with no rows at all), but not
+value-level drift. I didn't build the year-by-year loop because I can't see
+how your files are split; tell me and I'll add it.
 
-**9. The memory data has repeated measures the dictionary won't show.** How
-many assessments per participant, how far apart, who drops out, and whether
-scores hit a floor or ceiling are all participant-level questions.
-`%dd_patient` plus STEP 6c covers the first three. Floor/ceiling detection is
-worth adding once I know the instrument and its score range.
+**9. The dispensing data is an event history, and that needs its own module.**
+`dd_07` adds three things the column-by-column dictionary can't show:
+`%dd_calendar` (volume and distinct people per month — this is the first plot
+to look at, because it exposes the file's real start and end, partial first
+and last months, a reporting lag at the tail that looks like a decline, and
+any month with zero rows in the middle of the panel); `%dd_interval` (days
+between a patient's consecutive dispensations — the refill interval, which
+carries most of the behavioral signal, and where a zero-day gap tells you
+about same-day events that are either split transactions or a double-loaded
+file); and `%dd_rates` (per-person totals normalized to a time denominator).
 
-**10. Check the join before trusting any of it.** `%dd_link` reports how many
-IDs are in the Medicare files, in the memory data, and in both. Unlinked
-records on either side are the population your analysis will silently drop,
-and that number is often the most important one in the whole workbook.
+**10. Read the MEMORY ↔ Medicaid overlap carefully.** The unlinked share is
+not noise. Registry patients who pay cash or carry commercial insurance have
+no Medicaid record at all, so the linked subset is a **selected population**,
+not a sample of registry patients — that percentage belongs in your
+limitations paragraph. And if the two files carry different identifier
+systems, `%dd_link` will report 0% overlap; that's a finding about the
+identifiers, not the people, and it means you need the crosswalk first.
 
-## Not verified against your extract
+**11. `DD_MINCELL` is set to 11 by inheritance, not by checking.** 11 is the
+CMS minimum and it's right for the Medicaid files. The cannabis registry is
+governed by a different agreement and may require something stricter — and a
+registry population is small enough that a permissive threshold is genuinely
+re-identifying. One workbook covers both files in VM 2, so set it to the
+stricter of the two DUAs. **Confirm this number before exporting anything.**
 
-This session had **no access to the CoDES dictionary exports** (`mdd_*.csv`),
-so no variable name, table name, or code value in these files has been checked
-against your data. That is why nothing is hardcoded and why the driver's
-variable names are commented-out placeholders. If you make the dictionary
-exports available, the extract-specific issues — the 2019 table rename, the
-`_K` suffix through 2018, known variable gaps mid-panel, type changes across
-years that hard-error a `SET` — can be built into the driver as explicit
-guards rather than left to you to remember.
+**12. Which product field you pick defines the question.** For
+`drugvar=`, product name, product form, and strain are three different
+levels, and "distinct products per patient" will give you three different
+answers. Pick deliberately.
+
+## Not verified against your data
+
+This session had **no access to the CoDES dictionary exports** (`mdd_*.csv`)
+and none to the cannabis or Medicaid schemas, so no variable name, table name,
+or code value in these files has been checked against anything. That is why
+nothing is hardcoded and why every variable name in both drivers is a
+commented-out placeholder. Run STEP 2 (`graphs=N`) first — it needs no names
+at all — then fill in STEP 3 from sheet 1.
+
+For the Medicare VM specifically: if you can share the dictionary exports, the
+extract's known quirks — the 2019 table rename, the `_K` suffix through 2018,
+variable gaps mid-panel, type changes across years that hard-error a `SET` —
+can be built into the driver as explicit guards rather than left for you to
+remember.
 
 ## Not yet included
 
@@ -154,4 +203,6 @@ guards rather than left to you to remember.
   the same failure mode and MAD costs two extra full passes
 - Missing-data *pattern* analysis (which variables go missing together)
 - Automatic year-over-year value-catalog diffs
-- Floor/ceiling detection for bounded instrument scores
+- Continuous-eligibility construction from the Medicaid eligibility file (the
+  correct denominator for every per-patient rate in VM 2)
+- Product-mix decomposition for the potency trend in `dd_07`

@@ -291,8 +291,19 @@
 %mend dd_patient;
 
 /*-----------------------------------------------------------------------------
-  %DD_LINK -- how well do the Medicare files and the memory dataset actually
-  join? Run this before any analysis that assumes they do.
+  %DD_LINK -- do two datasets IN THE SAME ENCLAVE actually join?
+
+  WITHIN ONE VM ONLY. The Medicare VM and the MEMORY/Medicaid VM are isolated
+  from each other and their populations are not linkable; there is no code
+  here that could join across them and there should not be. The live question
+  this macro answers is MEMORY (cannabis dispensations) against Medicaid,
+  both of which sit in VM 2.
+
+  Run it before any analysis that assumes the join works. Unlinked records on
+  either side are the population that analysis will silently drop, and in a
+  registry-to-claims link that number is usually large and never random --
+  cash-paying and commercially insured registry patients have no Medicaid
+  record at all, so the linked subset is a selected population, not a sample.
 -----------------------------------------------------------------------------*/
 %macro dd_link(liba=,mema=,ida=,libb=,memb=,idb=,out=dd_linkage,append=Y);
   %if %dd_varexist(&liba..&mema,&ida)=0 or %dd_varexist(&libb..&memb,&idb)=0
