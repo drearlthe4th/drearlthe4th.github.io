@@ -41,6 +41,7 @@
 %include "&DDPATH/dd_06_report.sas";
 %include "&DDPATH/dd_07_longitudinal.sas";
 %include "&DDPATH/dd_08_panel.sas";
+%include "&DDPATH/dd_09_declare.sas";
 
 %let DD_OUT       = /workspace/output/datadict;   /* <-- must already exist */
 %let DD_PROJECT   = medicare;
@@ -77,8 +78,41 @@ proc datasets library=work nolist nowarn;
          dd_patient_summary dd_patient_meta dd_linkage dd_duplicates
          dd_calendar dd_interval_summary dd_dictionary
          dd_inventory dd_inventory_summary dd_panel_vars dd_panel_values
-         dd_panel_stats;
+         dd_panel_stats dd_numlike dd_forcenum_log dd_forcenum_failures;
 quit;
+/* NOTE: dd_tablemap and dd_varmap are DECLARATIONS, not results. They are
+   rebuilt from scratch in STEP 2b below, so they are not deleted here.    */
+
+/*---------------------------------------------------------------------------
+  STEP 2b.  DECLARE which member names are the same logical table.
+
+  Some years suffix the member name and some do not. The program guesses at
+  this on its own -- it strips a trailing _K and a trailing year, so
+  BCARRIER_K and BCARRIER line up without help. That guess covers the common
+  cases and it will be wrong somewhere, and when it is wrong the panel checks
+  quietly compare two different tables, or fail to compare one table with
+  itself.
+
+  So declare the ones you know. A declaration always beats the guess.
+
+  Run STEP 3 first with nothing declared, read the "GUESSED at" listing from
+  %dd_showmap, and come back here to pin down anything the guess got wrong.
+
+  reset=Y on the FIRST call only -- it starts the map over so a re-run does
+  not accumulate stale declarations.
+---------------------------------------------------------------------------*/
+/*
+%dd_maptable(base=CARRIER,   members=BCARRIER BCARRIER_K,          reset=Y);
+%dd_maptable(base=CARRIER_LINE, members=BCARRIER_LINE BCARRIER_LINE_K);
+%dd_maptable(base=MBSF_ABCD, members=MBSF_ABCD MBSF_ABCD_SUMMARY);
+*/
+
+/* And the same for a variable that is renamed across years. Without this it
+   shows up in the panel checks as two variables each present in half the
+   years, rather than one variable that changed name.                       */
+/*
+%dd_mapvar(base=CLM_FROM_DT, names=CLM_FROM_DT FROM_DT, reset=Y);
+*/
 
 /*---------------------------------------------------------------------------
   STEP 3.  What tables exist in which years?
@@ -93,6 +127,11 @@ proc print data=dd_inventory_summary noobs label;
   title 'Table inventory: anything flagged RENAMED needs a decision before pooling';
 run;
 title;
+
+/*  What did the program guess, and what did you declare?
+    Every member listed as "auto" was guessed at. Check them. If a guess is
+    wrong, declare it in STEP 2b and re-run %dd_inventory.                  */
+%dd_showmap;
 
 /*---------------------------------------------------------------------------
   STEP 4.  Sweep every table in every year.
@@ -144,6 +183,69 @@ proc print data=dd_panel_vars noobs label;
   title 'MID-PANEL GAPS -- present in some years, absent or empty in others';
 run;
 title;
+
+/*---------------------------------------------------------------------------
+  STEP 5b.  Character columns that are really numbers.
+
+  %DD_NUMLIKE scans every character variable and reports how much of it would
+  parse as a number -- and, more usefully, three reasons NOT to convert even
+  when all of it would:
+
+    LEADING ZEROS    the expensive one. ZIP, ICD, NDC, HCPCS, FIPS and
+                     provider numbers are digit strings where the leading
+                     zero is part of the value. '01234' becomes 1234 and
+                     stops joining to anything. Any value starting 0 followed
+                     by a digit disqualifies the variable automatically.
+    TOO MANY DIGITS  a SAS numeric is exact to about 15 digits. A 17-digit
+                     claim id converted to numeric is silently rounded, and
+                     two different claims can land on the same number.
+    PARTIAL PARSE    values that do not parse become missing. That is right
+                     if they were 'UNK' and wrong if they were '1,234'.
+
+  It writes the safe candidates to the macro variable DD_NUMCAND and prints
+  them in the log, ready to paste into %DD_FORCENUM.
+---------------------------------------------------------------------------*/
+/*
+%dd_numlike(lib=MED2019, mem=YOUR_CLAIMS_TABLE);
+
+proc print data=dd_numlike noobs label;
+  where index(verdict,'SAFE') or index(verdict,'MOSTLY') or index(verdict,'DO NOT');
+  var dataset varname pct_parses max_digits n_leading_zero verdict
+      suggested_informat conversion_note;
+  title 'Character variables that look numeric - read the verdict column';
+run;
+title;
+*/
+
+/*  Then convert the ones you decide on. The character original is KEPT and a
+    new numeric variable <var>_N is added alongside it, so nothing is
+    overwritten and the two can be compared.
+
+    view=Y builds a SAS view rather than a physical copy -- on a claims file
+    that is the difference between free and a second copy on disk.
+    strict=Y refuses anything %dd_numlike flagged DO NOT CONVERT.
+    map= sets a per-variable informat where best32. is not right.           */
+/*
+%dd_forcenum(lib=MED2019, mem=YOUR_CLAIMS_TABLE,
+             out=claims_num,
+             vars=&DD_NUMCAND,
+             map=TOT_CHRG_AMT:dollar32.,
+             informat=best32.,
+             suffix=_N,
+             view=Y,
+             strict=Y);
+
+proc print data=dd_forcenum_log noobs label;
+  title 'Conversion failures by variable';
+run;
+proc print data=dd_forcenum_failures(obs=100) noobs label;
+  title 'The actual values that would not parse - look before accepting the conversion';
+run;
+title;
+
+* profile the converted dataset like any other ;
+%dd_profile(lib=WORK, mem=claims_num, graphs=N);
+*/
 
 /*---------------------------------------------------------------------------
   STEP 6.  Full battery on the table-years you care about.

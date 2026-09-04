@@ -95,6 +95,73 @@
   %dd_note(Assigned %dd_n(&DD_LIBLIST) of %dd_n(&years) year libraries: &DD_LIBLIST);
 %mend dd_libyears;
 
+
+/*-----------------------------------------------------------------------------
+  %DD_ADDBASE -- attach LIBREF, YEAR and BASE_TABLE to anything carrying a
+  "dataset" column of the form MED2016.BCARRIER.
+
+  BASE_TABLE comes from your declarations in DD_TABLEMAP when the member name
+  is declared there (%DD_MAPTABLE in dd_09_declare.sas), and from a guess
+  otherwise: strip a trailing _K, strip a trailing year. BASE_SOURCE says
+  which of the two happened, so %DD_SHOWMAP can list everything still being
+  guessed at.
+
+  A declaration always wins over the guess.
+-----------------------------------------------------------------------------*/
+%macro dd_addbase(in=,out=,map=dd_tablemap,varmap=dd_varmap);
+  %if %dd_dsexist(&map)=0 %then %do;
+    data &map; length member $32 base_table $32; stop; run;
+  %end;
+
+  proc sql;
+    create table _dd_ab as
+    select a.*, m.base_table as _declared_base
+    from &in a
+      left join &map m on upcase(scan(a.dataset,2,'.')) = m.member;
+  quit;
+
+  data &out;
+    set _dd_ab;
+    length libref $8 base_table $32 base_source $8;
+    libref = scan(dataset,1,'.');
+    year   = input(compress(libref,,'kd'),?? best12.);
+    if not missing(_declared_base) then do;
+      base_table  = _declared_base;
+      base_source = 'declared';
+    end;
+    else do;
+      base_table  = upcase(scan(dataset,2,'.'));
+      base_table  = prxchange('s/_K$//',1,base_table);
+      base_table  = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+      base_source = 'auto';
+    end;
+    drop _declared_base;
+  run;
+
+  /* apply declared variable renames, if this dataset has a varname column */
+  %if %dd_dsexist(&varmap) and %dd_varexist(&out,varname) %then %do;
+    proc sql;
+      create table _dd_ab2 as
+      select a.*,
+             coalescec(v1.base_varname, v2.base_varname, a.varname)
+               as _base_varname length=32
+      from &out a
+        left join &varmap v1
+          on upcase(a.varname)=v1.varname and upcase(a.base_table)=v1.base_table
+        left join &varmap v2
+          on upcase(a.varname)=v2.varname and v2.base_table=' ';
+    quit;
+    data &out;
+      set _dd_ab2;
+      length original_varname $32;
+      original_varname = varname;
+      varname = _base_varname;
+      drop _base_varname;
+      label original_varname='Name in this year, before applying a declared rename';
+    run;
+  %end;
+%mend dd_addbase;
+
 /*-----------------------------------------------------------------------------
   %DD_INVENTORY -- which tables exist in which years.
 
@@ -116,17 +183,14 @@
     order by memname, libname;
   quit;
 
-  data &out;
+  /* BASE_TABLE comes from DD_TABLEMAP where you declared it, and from a
+     guess otherwise. %DD_SHOWMAP lists everything still being guessed.     */
+  data _dd_inv2;
     set _dd_inv;
-    length base_table $32;
-    year = input(compress(libname,,'kd'),?? best12.);
-    /* Normalize the member name so the same logical file lines up across
-       years despite a suffix. Extend this if your extract renames in some
-       other way -- it is a convention, not a lookup.                       */
-    base_table = upcase(strip(memname));
-    base_table = prxchange('s/_K$//',1,base_table);
-    base_table = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+    length dataset $41;
+    dataset = catx('.',libname,memname);
   run;
+  %dd_addbase(in=_dd_inv2,out=&out);
 
   /* presence matrix: base table x year */
   proc sql;
@@ -245,16 +309,16 @@
     %dd_warn(&cols not found - run %nrstr(%dd_sweep) first.); %return;
   %end;
 
+  /* BASE_TABLE and the declared variable renames are applied here, so a
+     table or a variable you declared in dd_09_declare.sas lines up across
+     years instead of looking like two half-present objects.               */
+  %dd_addbase(in=&cols,out=_dd_pv0);
   data _dd_pv;
-    set &cols;
-    length libref $8 base_table $32;
-    libref     = scan(dataset,1,'.');
-    year       = input(compress(libref,,'kd'),?? best12.);
-    base_table = upcase(scan(dataset,2,'.'));
-    base_table = prxchange('s/_K$//',1,base_table);
-    base_table = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+    set _dd_pv0;
     if not missing(year);
-    keep dataset libref year base_table varname vartype type length format label;
+    keep dataset libref year base_table base_source varname vartype type
+         length format label
+         %if %dd_varexist(_dd_pv0,original_varname) %then original_varname;;
   run;
 
   /* years in which each TABLE exists -- the right denominator. A table that
@@ -289,14 +353,9 @@
 
   /* years in which the variable exists but is completely empty */
   %if %dd_dsexist(&miss) %then %do;
+    %dd_addbase(in=&miss,out=_dd_mp0);
     data _dd_mp;
-      set &miss;
-      length libref $8 base_table $32;
-      libref     = scan(dataset,1,'.');
-      year       = input(compress(libref,,'kd'),?? best12.);
-      base_table = upcase(scan(dataset,2,'.'));
-      base_table = prxchange('s/_K$//',1,base_table);
-      base_table = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+      set _dd_mp0;
       if not missing(year) and pct_miss >= 100;
       keep base_table varname year;
     run;
@@ -392,14 +451,9 @@
     %dd_warn(&vals not found - run %nrstr(%dd_sweep) first.); %return;
   %end;
 
+  %dd_addbase(in=&vals,out=_dd_vy0);
   data _dd_vy;
-    set &vals;
-    length libref $8 base_table $32;
-    libref     = scan(dataset,1,'.');
-    year       = input(compress(libref,,'kd'),?? best12.);
-    base_table = upcase(scan(dataset,2,'.'));
-    base_table = prxchange('s/_K$//',1,base_table);
-    base_table = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+    set _dd_vy0;
     if not missing(year) and pct >= &minpct;
   run;
 
@@ -456,14 +510,9 @@
     %dd_warn(&stats not found - run %nrstr(%dd_sweep) first.); %return;
   %end;
 
+  %dd_addbase(in=&stats,out=_dd_ps0);
   data _dd_ps;
-    set &stats;
-    length libref $8 base_table $32;
-    libref     = scan(dataset,1,'.');
-    year       = input(compress(libref,,'kd'),?? best12.);
-    base_table = upcase(scan(dataset,2,'.'));
-    base_table = prxchange('s/_K$//',1,base_table);
-    base_table = prxchange('s/_?(19|20)\d\d$//',1,base_table);
+    set _dd_ps0;
     if not missing(year);
   run;
 

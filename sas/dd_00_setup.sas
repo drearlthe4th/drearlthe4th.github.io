@@ -80,6 +80,13 @@
                                    presence, type and length changes across
                                    years, code values by year, year-over-year
                                    distribution shifts, and a guarded stack
+  18. Declarations (dd_09) ....... %DD_NUMLIKE finds character columns that
+                                   are really numbers and says which are safe
+                                   to convert; %DD_FORCENUM converts the ones
+                                   you name into NEW numeric variables.
+                                   %DD_MAPTABLE / %DD_MAPVAR declare which
+                                   member and variable names are the same
+                                   thing across years when the guess is wrong
 
   PASSES OVER THE DATA (cost control)
   -----------------------------------

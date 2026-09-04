@@ -51,6 +51,62 @@ It then adds the checks a pooled dictionary structurally cannot do:
 | `%dd_panel_stats` | Year-over-year shifts in numeric distributions: a real change, a units change, or a definition change |
 | `%dd_stackyears` | A `SET` across years that aborts on a type change and generates the `LENGTH` statements that prevent truncation, tagging every row with its source year |
 
+### When the guess about member names is wrong
+
+`dd_08` normalizes member names on its own — strips a trailing `_K`, strips a
+trailing year — so `BCARRIER_K` and `BCARRIER` line up without help. That
+covers the common cases and it will be wrong somewhere, and when it's wrong
+the panel checks quietly compare two different tables, or fail to compare one
+table with itself.
+
+So declare the ones you know, in the driver's STEP 2b:
+
+```sas
+%dd_maptable(base=CARRIER, members=BCARRIER BCARRIER_K, reset=Y);
+%dd_mapvar(base=CLM_FROM_DT, names=CLM_FROM_DT FROM_DT);
+```
+
+A declaration always beats the guess. Run the inventory once with nothing
+declared, read `%dd_showmap` — it lists every member name still being
+**guessed** at — and come back to pin down whatever the guess got wrong.
+`%dd_mapvar` does the same for a variable renamed mid-panel, which otherwise
+shows up as two variables each present in half the years.
+
+## Character columns that are really numbers
+
+`%dd_numlike` scans every character variable and reports how much of it parses
+as a number — and, more usefully, three reasons **not** to convert even when
+all of it would:
+
+- **Leading zeros.** The expensive one. ZIP, ICD, NDC, HCPCS, FIPS and
+  provider numbers are digit strings where the leading zero is part of the
+  value. `'01234'` becomes `1234` and stops joining to anything. Any value
+  starting `0` followed by a digit disqualifies the variable automatically.
+- **Too many digits.** A SAS numeric is exact to about 15 digits. A 17-digit
+  claim id converted to numeric is silently rounded, and two different claims
+  can land on the same number.
+- **Partial parse.** Values that don't parse become missing — right if they
+  were `'UNK'`, wrong if they were `'1,234'`.
+
+Safe candidates land in the macro variable `DD_NUMCAND`, ready to paste into:
+
+```sas
+%dd_forcenum(lib=MED2019, mem=CLAIMS, out=claims_num,
+             vars=&DD_NUMCAND, map=TOT_CHRG_AMT:dollar32.,
+             suffix=_N, view=Y, strict=Y);
+```
+
+The character original is **kept** and a new `<var>_N` is added beside it, so
+nothing is overwritten and the two can be compared. `view=Y` builds a view
+rather than a second copy of the file on disk. `strict=Y` refuses anything
+`%dd_numlike` flagged *do not convert*. `dd_forcenum_failures` lists the
+actual values that wouldn't parse — read it before accepting the conversion,
+and suppress it before export, since it holds raw data values.
+
+One case to watch in VM 2: if `PATIENT_ID` or `MSIS_ID` is stored as
+character, **leave both as character**. Converting an identifier on one side
+of the crosswalk and not the other is a guaranteed zero-match join.
+
 **VM 2's three folders need nothing special** — three `libname` statements,
 which is what the driver already does.
 
@@ -67,6 +123,7 @@ which is what the driver already does.
 | `dd_06_report.sas` | Master dictionary assembly, Excel/PDF export, `%dd_profile` one-call wrapper |
 | `dd_07_longitudinal.sas` | Volume by calendar period, inter-event intervals, per-person rates |
 | `dd_08_panel.sas` | Per-year libraries, table inventory, variable × year matrix, type/length change detection, value drift by year, guarded stacking |
+| `dd_09_declare.sas` | Numeric-in-character detection and conversion; declaring which tables and variables are equivalent across years |
 | `dd_98_selftest.sas` | Runs the whole battery on SASHELP tables. **Run this first.** |
 | `dd_99_driver_medicare.sas` | VM 1 driver. Edit this one inside the Medicare enclave. |
 | `dd_99_driver_memory.sas` | VM 2 driver. Edit this one inside the cannabis/Medicaid enclave. |

@@ -25,6 +25,7 @@
 %include "&DDPATH/dd_06_report.sas";
 %include "&DDPATH/dd_07_longitudinal.sas";
 %include "&DDPATH/dd_08_panel.sas";   /* only needed if any file is split by year */
+%include "&DDPATH/dd_09_declare.sas";
 
 %let DD_OUT       = /workspace/output/datadict;   /* <-- must already exist */
 %let DD_PROJECT   = memory_medicaid;
@@ -57,7 +58,8 @@ proc datasets library=work nolist nowarn;
   delete dd_tables dd_columns dd_missing dd_numstats dd_outliers
          dd_cardinality dd_values dd_levelcount dd_corrpairs dd_dates
          dd_patient_summary dd_patient_meta dd_linkage dd_duplicates
-         dd_calendar dd_interval_summary dd_dictionary;
+         dd_calendar dd_interval_summary dd_dictionary
+         dd_numlike dd_forcenum_log dd_forcenum_failures;
 quit;
 
 /*---------------------------------------------------------------------------
@@ -122,6 +124,60 @@ quit;
             key      = CLAIM_ID,
             interval = month,
             logscale = Y);
+*/
+
+/*---------------------------------------------------------------------------
+  STEP 3c.  Character columns that are really numbers.
+
+  Dispensing extracts are full of these: quantity, THC and CBD milligrams and
+  price all arrive as text often enough to be worth checking every time.
+  %DD_NUMLIKE reports how much of each character variable parses as a number
+  and, more usefully, when NOT to convert:
+
+    LEADING ZEROS    the leading zero is part of the value in a ZIP, a FIPS
+                     county code, an NDC or a licence number. '01234' becomes
+                     1234 and stops joining. Disqualifies the variable.
+    TOO MANY DIGITS  a SAS numeric is exact to about 15 digits, so a long
+                     transaction id is silently rounded and two different
+                     transactions can collide on one number.
+    PARTIAL PARSE    non-parsing values become missing -- right if they were
+                     'UNK', wrong if they were '1,234'.
+
+  Safe candidates land in the macro variable DD_NUMCAND, ready to paste.
+
+  Watch the crosswalk here in particular. If PATIENT_ID or MSIS_ID is stored
+  as character, LEAVE IT AS CHARACTER on both sides. Converting an identifier
+  to numeric in one file and not the other is a guaranteed zero-match join,
+  and converting one with leading zeros breaks the link permanently.
+---------------------------------------------------------------------------*/
+/*
+%dd_numlike(lib=MEMORY, mem=YOUR_DISPENSING_TABLE);
+
+proc print data=dd_numlike noobs label;
+  var dataset varname pct_parses max_digits n_leading_zero verdict
+      suggested_informat conversion_note;
+  title 'Character variables that look numeric - read the verdict column';
+run;
+title;
+
+%dd_forcenum(lib=MEMORY, mem=YOUR_DISPENSING_TABLE,
+             out=disp_num,
+             vars=QUANTITY THC_MG CBD_MG PRICE_PAID,
+             map=PRICE_PAID:dollar32.,
+             suffix=_N,
+             view=Y,
+             strict=Y);
+
+proc print data=dd_forcenum_failures(obs=100) noobs label;
+  title 'Values that would not parse - look before accepting the conversion';
+run;
+title;
+
+* then profile the converted version, with the new numerics as sumvars ;
+%dd_profile(lib=WORK, mem=disp_num,
+            id=PATIENT_ID, datevar=DISPENSE_DT, datefmt=SAS,
+            sumvars=QUANTITY_N THC_MG_N CBD_MG_N PRICE_PAID_N,
+            graphs=Y);
 */
 
 /*---------------------------------------------------------------------------
