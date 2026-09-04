@@ -56,13 +56,21 @@
   11. Patient-level rollups ...... records / claims / drugs / dates / spend
                                    per person, concentration, follow-up span
   12. Within-VM linkage .......... ID overlap between two datasets in the
-                                   SAME enclave (MEMORY <-> Medicaid)
+                                   SAME enclave. %DD_LINK for a shared id,
+                                   %DD_XWALK when a crosswalk carries the
+                                   mapping (MEMORY -> crosswalk -> Medicaid):
+                                   coverage, fan-out and staleness, plus the
+                                   only match rate that means anything
   15. Event history .............. volume by calendar period, inter-event
                                    intervals, per-person rates (dd_07)
   13. Duplicate key diagnostics .. exact and key-level duplication
-  14. Disclosure suppression ..... DUA cell suppression (default n < 11) with
+  14. Disclosure suppression ..... DUA cell suppression at n < 11 (confirmed
+                                   for all three data estates) with
                                    complementary suppression, applied to
                                    anything you export off the VM
+  16. Analyst annotations ........ %DD_ANNOTATE records a caveat against a
+                                   variable in the dictionary itself, so the
+                                   qualification ships with the deliverable
 
   PASSES OVER THE DATA (cost control)
   -----------------------------------

@@ -28,12 +28,11 @@
 %let DD_OUT       = /workspace/output/datadict;   /* <-- must already exist */
 %let DD_PROJECT   = memory_medicaid;
 
-/*  CONFIRM THIS NUMBER. 11 is the CMS minimum and it is the right default
-    for the Medicaid files. The cannabis registry data is governed by a
-    different agreement and may require a different (often stricter)
-    threshold, and a registry population is small enough that a permissive
-    threshold is genuinely re-identifying. Check both DUAs and set this to
-    the stricter of the two, since one workbook covers both.                */
+/*  CONFIRMED: 11 applies to both the Medicaid and the registry data in this
+    enclave. Primary suppression blanks any cell of 1-10; complementary
+    suppression then blanks the next smallest cell in the same variable, so a
+    single suppressed cell cannot be recovered by subtraction from the total.
+    Percentages are blanked along with the counts.                          */
 %let DD_MINCELL   = 11;
 
 /*  Cannabis dispensing files are code-heavy: product names, forms, strains,
@@ -44,6 +43,7 @@
 
 libname MEMORY "/data/memory"   access=readonly;  /* <-- EDIT: cannabis     */
 libname MCAID  "/data/medicaid" access=readonly;  /* <-- EDIT: Medicaid     */
+libname XWALK  "/data/xwalk"    access=readonly;  /* <-- EDIT: crosswalk    */
 
 /*---------------------------------------------------------------------------
   STEP 1.  Clear prior results so a re-run does not append to itself.
@@ -61,6 +61,7 @@ quit;
 ---------------------------------------------------------------------------*/
 %dd_profile(lib=MEMORY, mem=YOUR_DISPENSING_TABLE, graphs=N);  /* <-- EDIT */
 %dd_profile(lib=MEMORY, mem=YOUR_PATIENT_TABLE,    graphs=N);  /* <-- EDIT */
+%dd_profile(lib=XWALK,  mem=YOUR_CROSSWALK_TABLE,  graphs=N);  /* <-- EDIT */
 %dd_profile(lib=MCAID,  mem=YOUR_MEDICAID_CLAIMS,  graphs=N);  /* <-- EDIT */
 %dd_profile(lib=MCAID,  mem=YOUR_MEDICAID_ELIG,    graphs=N);  /* <-- EDIT */
 
@@ -77,10 +78,13 @@ quit;
               rows per patient -- confirm this in sheet "11 Linkage and keys"
               with key=, do not assume it)
     claimid=  the transaction / dispensation identifier, if there is one
-    drugvar=  the product identifier. Whichever level you pick is the level
-              your "distinct products per patient" number is about: product
-              name, product form, and strain are three different questions
-              and will give three different answers.
+    drugvar=  PRODUCT_NAME. Note the consequence: product names are free-text
+              trade names, not a controlled vocabulary, so "distinct products
+              per patient" from this field is an ESTIMATE and almost certainly
+              an over-count -- re-branded, re-spelled and re-cased versions of
+              one product each count once more. STEP 3b records that caveat in
+              the dictionary itself so it travels with the deliverable, and
+              STEP 6e measures how bad the spelling drift is.
     datevar=  the dispensation date
     sumvars=  the quantity and potency columns -- grams/units dispensed,
               THC mg, CBD mg, price paid. These are what make per-patient
@@ -116,30 +120,69 @@ quit;
 */
 
 /*---------------------------------------------------------------------------
-  STEP 4.  Does MEMORY join to Medicaid? Both are in THIS VM, so this is a
-           real question rather than a prohibited one.
+  STEP 4.  MEMORY -> crosswalk -> Medicaid.
 
-  Read the result carefully. The unlinked share is not noise: registry
-  patients who pay cash or carry commercial insurance have no Medicaid
-  record at all, so the linked subset is a SELECTED population, not a
-  sample of registry patients. Whatever that percentage is, it belongs in
-  the limitations paragraph of anything you write.
+  You have the crosswalk, so use %DD_XWALK rather than %DD_LINK. It measures
+  the three things a crosswalk breaks that a direct join does not:
 
-  If the two files carry different identifier systems, %DD_LINK will report
-  0% overlap. That is a finding about the identifiers, not about the people,
-  and it means you need the crosswalk before going further.
+    COVERAGE   ids on either side that the crosswalk simply does not contain.
+               They are unlinkable, and they are not missing at random.
+    FAN-OUT    one registry patient mapped to several MSIS ids, or the
+               reverse. A one-to-one merge on a fan-out crosswalk silently
+               multiplies rows and every downstream count is then wrong in
+               the same direction. The macro warns in the log if it finds any.
+    STALENESS  crosswalk ids that appear in neither source file. Harmless to
+               the join, but they inflate any match rate computed from the
+               crosswalk alone.
+
+  Read the END TO END rows of the output and ignore the rest for reporting
+  purposes. Crosswalk coverage overstates the match rate, because a crosswalk
+  row whose partner is not actually present in the source file links nothing.
+
+  Then remember what the unlinked share means: registry patients who pay cash
+  or carry commercial insurance have no Medicaid record at all. The linked
+  subset is a SELECTED population, not a sample of registry patients, and
+  that percentage belongs in your limitations paragraph.
 ---------------------------------------------------------------------------*/
 /*
-%dd_link(liba=MEMORY, mema=YOUR_DISPENSING_TABLE, ida=PATIENT_ID,
-         libb=MCAID,  memb=YOUR_MEDICAID_ELIG,    idb=MSIS_ID);
+%dd_xwalk(liba=MEMORY, mema=YOUR_DISPENSING_TABLE, ida=PATIENT_ID,
+          libb=MCAID,  memb=YOUR_MEDICAID_ELIG,    idb=MSIS_ID,
+          xlib=XWALK,  xmem=YOUR_CROSSWALK_TABLE,
+          xa=PATIENT_ID, xb=MSIS_ID);
+*/
+
+/* Check the crosswalk's own key uniqueness before trusting it. If either of
+   these reports NOT UNIQUE, the crosswalk is many-to-many and you must decide
+   how to collapse it BEFORE any merge -- not after the row counts look odd. */
+/*
+%dd_dups(lib=XWALK, mem=YOUR_CROSSWALK_TABLE, key=PATIENT_ID);
+%dd_dups(lib=XWALK, mem=YOUR_CROSSWALK_TABLE, key=MSIS_ID);
 */
 
 /*---------------------------------------------------------------------------
   STEP 5.  Assemble and export.
 ---------------------------------------------------------------------------*/
 %dd_assemble;
+
+/* STEP 3b -- record the caveats in the dictionary itself, so they travel
+   with the deliverable instead of living in an email. Any note containing a
+   comma must be wrapped in %str(), as below.                               */
+/*
+%dd_annotate(dataset=MEMORY.YOUR_DISPENSING_TABLE, varname=PRODUCT_NAME,
+             note=%str(ESTIMATE ONLY. Free-text trade names with no controlled
+                       vocabulary. Distinct-product counts derived from this
+                       field are an upper bound: re-branded / re-spelled /
+                       re-cased versions of one product each count separately.
+                       Do not report as a product count without saying so.));
+
+%dd_annotate(dataset=MEMORY.YOUR_DISPENSING_TABLE, varname=PATIENT_ID,
+             note=%str(Links to Medicaid only through the crosswalk. See the
+                       Linkage sheet: the linked subset is a selected
+                       population, not a sample of registry patients.));
+*/
+
 %dd_export(export=VM);      /* full detail. STAYS IN THIS ENCLAVE.          */
-%dd_export(export=SHARE);   /* cells < &DD_MINCELL suppressed.              */
+%dd_export(export=SHARE);   /* cells < 11 suppressed. Safe to move.         */
 
 /*---------------------------------------------------------------------------
   STEP 6.  Patient-level questions specific to dispensing data.
@@ -191,5 +234,36 @@ proc sql;
   select count(*) as n_same_day_events
   from dd_ev_YOUR_DISPENSING_TABLE
   where gap_days = 0;
+quit;
+*/
+
+/* 6e. HOW BAD IS THE PRODUCT_NAME ESTIMATE?
+       Collapsing case, punctuation and whitespace gives a lower bound on the
+       true number of distinct products. The gap between the raw count and the
+       normalized count is the size of the error in every "distinct products
+       per patient" figure. Report the gap, not just the count.
+proc sql;
+  create table product_drift as
+  select count(distinct PRODUCT_NAME) as n_raw,
+         count(distinct upcase(compress(PRODUCT_NAME,,'sp'))) as n_normalized,
+         calculated n_raw - calculated n_normalized as n_collapsed,
+         100*(calculated n_raw - calculated n_normalized)
+             / max(calculated n_raw,1) as pct_overcount
+  from MEMORY.YOUR_DISPENSING_TABLE
+  where not missing(PRODUCT_NAME);
+quit;
+
+* the specific names that collapse together -- read this before trusting any
+  product-level result ;
+proc sql;
+  create table product_collisions as
+  select upcase(compress(PRODUCT_NAME,,'sp')) as normalized_name,
+         count(distinct PRODUCT_NAME) as n_spellings,
+         count(*) as n_dispensations
+  from MEMORY.YOUR_DISPENSING_TABLE
+  where not missing(PRODUCT_NAME)
+  group by calculated normalized_name
+  having calculated n_spellings > 1
+  order by n_dispensations desc;
 quit;
 */

@@ -387,3 +387,180 @@
   %end;
   %else %do; data &out; set _dd_dup; run; %end;
 %mend dd_dups;
+
+/*-----------------------------------------------------------------------------
+  %DD_XWALK -- linkage through a crosswalk table.
+
+  Use this instead of %DD_LINK whenever the two files do not share an
+  identifier and a crosswalk carries the mapping. In VM 2 that is MEMORY
+  (registry patient id) -> crosswalk -> Medicaid (MSIS id).
+
+  A crosswalk introduces three failure modes that a direct join does not, and
+  all three are silent:
+
+    COVERAGE   the crosswalk does not contain every id on either side. Ids
+               missing from it are unlinkable, and they are not missing at
+               random -- they are usually the people who were never matched.
+    FAN-OUT    one registry patient mapping to several Medicaid ids (or the
+               reverse) turns a one-to-one merge into a many-to-many one and
+               silently multiplies rows. Every downstream count is then wrong
+               in the same direction.
+    STALENESS  the crosswalk contains ids that no longer appear in either
+               source file. Harmless to the join, but it inflates any
+               match-rate computed from the crosswalk alone rather than from
+               the source files.
+
+  This macro measures all three and computes the only match rate that means
+  anything: end to end, source A -> crosswalk -> source B, counting only ids
+  that exist at every step.
+
+  liba/mema/ida  source A and its id           (e.g. MEMORY dispensing, PATIENT_ID)
+  libb/memb/idb  source B and its id           (e.g. Medicaid eligibility, MSIS_ID)
+  xlib/xmem      the crosswalk table
+  xa / xb        the crosswalk's columns holding A's id and B's id
+-----------------------------------------------------------------------------*/
+%macro dd_xwalk(liba=,mema=,ida=, libb=,memb=,idb=,
+                xlib=,xmem=,xa=,xb=, out=dd_linkage, append=Y);
+
+  %if %dd_dsexist(&xlib..&xmem)=0 %then %do;
+    %dd_warn(Crosswalk &xlib..&xmem not found - linkage skipped.); %return;
+  %end;
+  %if %dd_varexist(&xlib..&xmem,&xa)=0 or %dd_varexist(&xlib..&xmem,&xb)=0
+    %then %do;
+      %dd_warn(&xa or &xb not found in the crosswalk - linkage skipped.); %return;
+    %end;
+  %if %dd_varexist(&liba..&mema,&ida)=0 or %dd_varexist(&libb..&memb,&idb)=0
+    %then %do;
+      %dd_warn(&ida or &idb not found in its source file - linkage skipped.); %return;
+    %end;
+
+  proc sql;
+    create table _dd_ia as
+      select distinct &ida as id_a from &liba..&mema where not missing(&ida);
+    create table _dd_ib as
+      select distinct &idb as id_b from &libb..&memb where not missing(&idb);
+    create table _dd_x as
+      select distinct &xa as id_a, &xb as id_b
+      from &xlib..&xmem
+      where not missing(&xa) and not missing(&xb);
+  quit;
+
+  /* crosswalk shape: is it actually one to one? */
+  proc sql;
+    create table _dd_xfan as
+      select id_a, count(distinct id_b) as n_b from _dd_x group by id_a;
+    create table _dd_xfin as
+      select id_b, count(distinct id_a) as n_a from _dd_x group by id_b;
+
+    /* end to end: an id that exists in A, appears in the crosswalk, and whose
+       partner actually exists in B                                          */
+    create table _dd_e2e as
+      select distinct a.id_a
+      from _dd_ia a
+        inner join _dd_x  x on a.id_a = x.id_a
+        inner join _dd_ib b on x.id_b = b.id_b;
+
+    create table _dd_e2eb as
+      select distinct b.id_b
+      from _dd_ib b
+        inner join _dd_x  x on b.id_b = x.id_b
+        inner join _dd_ia a on x.id_a = a.id_a;
+
+    /* coverage of the crosswalk over each source */
+    create table _dd_cova as
+      select distinct a.id_a from _dd_ia a inner join _dd_x x on a.id_a=x.id_a;
+    create table _dd_covb as
+      select distinct b.id_b from _dd_ib b inner join _dd_x x on b.id_b=x.id_b;
+
+    /* stale crosswalk rows: ids that appear in no source file */
+    create table _dd_stalea as
+      select distinct x.id_a from _dd_x x
+      where x.id_a not in (select id_a from _dd_ia);
+    create table _dd_staleb as
+      select distinct x.id_b from _dd_x x
+      where x.id_b not in (select id_b from _dd_ib);
+  quit;
+
+  proc sql noprint;
+    select count(*) into :_fanout trimmed from _dd_xfan where n_b > 1;
+    select count(*) into :_fanin  trimmed from _dd_xfin where n_a > 1;
+    select max(n_b)  into :_maxb   trimmed from _dd_xfan;
+    select max(n_a)  into :_maxa   trimmed from _dd_xfin;
+  quit;
+
+  data _dd_link;
+    length comparison $150 side $62 note $130;
+    comparison = "&liba..&mema (&ida) -> &xlib..&xmem -> &libb..&memb (&idb)";
+    n_a    = %dd_nobs(_dd_ia);
+    n_b    = %dd_nobs(_dd_ib);
+    n_xa   = %dd_nobs(_dd_xfan);
+    n_xb   = %dd_nobs(_dd_xfin);
+    n_cova = %dd_nobs(_dd_cova);
+    n_covb = %dd_nobs(_dd_covb);
+    n_e2ea = %dd_nobs(_dd_e2e);
+    n_e2eb = %dd_nobs(_dd_e2eb);
+
+    side='A: distinct ids in source A';            n=n_a;    pct=100;
+      note='denominator for the A-side match rate'; output;
+    side='B: distinct ids in source B';            n=n_b;    pct=100;
+      note='denominator for the B-side match rate'; output;
+
+    side='A ids present in the crosswalk';         n=n_cova;
+      pct=100*n_cova/max(n_a,1);
+      note='crosswalk coverage of A; the rest are unlinkable'; output;
+    side='B ids present in the crosswalk';         n=n_covb;
+      pct=100*n_covb/max(n_b,1);
+      note='crosswalk coverage of B'; output;
+
+    side='A ids linked END TO END to a real B id'; n=n_e2ea;
+      pct=100*n_e2ea/max(n_a,1);
+      note='THE match rate. Everything else overstates it.'; output;
+    side='B ids linked END TO END to a real A id'; n=n_e2eb;
+      pct=100*n_e2eb/max(n_b,1);
+      note='the same rate read from the other direction'; output;
+
+    side='A ids with NO end-to-end link';          n=n_a-n_e2ea;
+      pct=100*(n_a-n_e2ea)/max(n_a,1);
+      note='the population a linked analysis silently drops'; output;
+
+    side='A ids mapping to more than one B id';    n=&_fanout;
+      pct=100*&_fanout/max(n_xa,1);
+      note=cats('FAN-OUT. Worst case one A id maps to ',&_maxb,
+                ' B ids. A one-to-one merge here multiplies rows.'); output;
+    side='B ids mapping to more than one A id';    n=&_fanin;
+      pct=100*&_fanin/max(n_xb,1);
+      note=cats('FAN-IN. Worst case one B id maps to ',&_maxa,' A ids.'); output;
+
+    side='Crosswalk A ids found in no source A';   n=%dd_nobs(_dd_stalea);
+      pct=100*%dd_nobs(_dd_stalea)/max(n_xa,1);
+      note='stale crosswalk rows; they inflate any match rate computed from the crosswalk alone'; output;
+    side='Crosswalk B ids found in no source B';   n=%dd_nobs(_dd_staleb);
+      pct=100*%dd_nobs(_dd_staleb)/max(n_xb,1);
+      note='stale crosswalk rows'; output;
+
+    keep comparison side n pct note;
+  run;
+
+  %if %upcase(&append)=Y and %dd_dsexist(&out) %then %do;
+    proc append base=&out data=_dd_link force; run;
+  %end;
+  %else %do; data &out; set _dd_link; run; %end;
+
+  %if &_fanout > 0 or &_fanin > 0 %then %do;
+    %dd_warn(Crosswalk is NOT one-to-one: &_fanout A ids fan out, &_fanin B ids fan in.);
+    %dd_warn(Deduplicate or aggregate before merging, or row counts downstream will be inflated.);
+  %end;
+  %else %dd_note(Crosswalk is one-to-one on the ids that appear in it.);
+
+  %if %upcase(&DD_GRAPHS)=Y %then %do;
+    title  "Linkage through the crosswalk";
+    title2 "Read the END TO END rows. Crosswalk coverage alone overstates the match rate, because a crosswalk row whose partner is not in the source file links nothing.";
+    proc sgplot data=_dd_link(where=(index(side,'fan')=0 and index(side,'Crosswalk')=0));
+      hbarparm category=side response=pct / datalabel datalabelfmt=5.1
+               fillattrs=(color=cx4c72b0);
+      xaxis label='Percent of that source''s distinct ids' grid values=(0 to 100 by 10);
+      yaxis display=(nolabel) valueattrs=(size=8) fitpolicy=none;
+    run;
+    title;
+  %end;
+%mend dd_xwalk;

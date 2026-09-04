@@ -12,7 +12,7 @@ a Medicaid claim file, or a cannabis dispensation table.
 |---|---|---|
 | Contents | Medicare claims / enrollment | MEMORY medical cannabis dispensing + Medicaid |
 | Driver | `dd_99_driver_medicare.sas` | `dd_99_driver_memory.sas` |
-| Linkage | between Medicare files only | MEMORY ↔ Medicaid |
+| Linkage | between Medicare files only | MEMORY ↔ crosswalk ↔ Medicaid |
 
 The VMs do not talk to each other and the populations are **not linkable
 across them**. Copy this folder into each VM and run it there with its own
@@ -21,8 +21,9 @@ should not be — the two have separate data use agreements, and a joined
 output would be a disclosure event rather than an analysis. Don't merge the
 two workbooks either.
 
-Inside VM 2, MEMORY ↔ Medicaid *is* a real question, and `%dd_link` answers
-it (see item 10 below for how to read the answer).
+Inside VM 2, MEMORY ↔ Medicaid *is* a real question. The two files don't share
+an identifier, so `%dd_xwalk` runs the join through the crosswalk and measures
+what a crosswalk breaks (see item 10 below for how to read the answer).
 
 ## Files
 
@@ -161,25 +162,36 @@ carries most of the behavioral signal, and where a zero-day gap tells you
 about same-day events that are either split transactions or a double-loaded
 file); and `%dd_rates` (per-person totals normalized to a time denominator).
 
-**10. Read the MEMORY ↔ Medicaid overlap carefully.** The unlinked share is
-not noise. Registry patients who pay cash or carry commercial insurance have
-no Medicaid record at all, so the linked subset is a **selected population**,
-not a sample of registry patients — that percentage belongs in your
-limitations paragraph. And if the two files carry different identifier
-systems, `%dd_link` will report 0% overlap; that's a finding about the
-identifiers, not the people, and it means you need the crosswalk first.
+**10. A crosswalk breaks three things a direct join doesn't, all silently.**
+`%dd_xwalk` measures each: **coverage** (ids the crosswalk simply doesn't
+contain — unlinkable, and not missing at random), **fan-out** (one registry
+patient mapped to several MSIS ids, which turns a one-to-one merge into a
+many-to-many one and silently multiplies rows), and **staleness** (crosswalk
+ids present in neither source file, which inflate any match rate computed
+from the crosswalk alone). Report the **end-to-end** rows and ignore the
+rest: crosswalk coverage overstates the match rate, because a crosswalk row
+whose partner isn't actually in the source file links nothing.
 
-**11. `DD_MINCELL` is set to 11 by inheritance, not by checking.** 11 is the
-CMS minimum and it's right for the Medicaid files. The cannabis registry is
-governed by a different agreement and may require something stricter — and a
-registry population is small enough that a permissive threshold is genuinely
-re-identifying. One workbook covers both files in VM 2, so set it to the
-stricter of the two DUAs. **Confirm this number before exporting anything.**
+Then remember what the unlinked share means. Registry patients who pay cash
+or carry commercial insurance have no Medicaid record at all, so the linked
+subset is a **selected population**, not a sample of registry patients. That
+percentage belongs in your limitations paragraph.
 
-**12. Which product field you pick defines the question.** For
-`drugvar=`, product name, product form, and strain are three different
-levels, and "distinct products per patient" will give you three different
-answers. Pick deliberately.
+**11. `DD_MINCELL` = 11, confirmed for all three data estates.** Primary
+suppression blanks cells of 1–10; complementary suppression then blanks the
+next smallest cell in the same variable, so a single suppressed cell can't be
+recovered by subtraction from the total. Percentages are blanked with the
+counts.
+
+**12. `PRODUCT_NAME` gives an estimate, and the code says so.** Product names
+are free-text trade names with no controlled vocabulary, so distinct-product
+counts from that field are an **upper bound** — re-branded, re-spelled and
+re-cased versions of one product each count separately. Two things follow.
+`%dd_annotate` writes that caveat into the dictionary itself so it ships with
+the deliverable rather than living in an email. And STEP 6e measures the size
+of the error: it counts distinct names raw, counts them again after
+collapsing case, punctuation and whitespace, and lists the specific names
+that collapse together. Report that gap alongside the count.
 
 ## Not verified against your data
 
@@ -205,4 +217,6 @@ remember.
 - Automatic year-over-year value-catalog diffs
 - Continuous-eligibility construction from the Medicaid eligibility file (the
   correct denominator for every per-patient rate in VM 2)
+- Fuzzy product-name normalization beyond case/punctuation/whitespace
+  (SPEDIS or a hand-built map); STEP 6e bounds the error but does not fix it
 - Product-mix decomposition for the potency trend in `dd_07`

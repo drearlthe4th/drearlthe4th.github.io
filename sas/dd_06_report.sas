@@ -99,6 +99,31 @@
 %mend dd_assemble;
 
 /*-----------------------------------------------------------------------------
+  %DD_ANNOTATE -- record an analyst caveat against a variable in the
+  dictionary, so the qualification travels with the deliverable instead of
+  living in somebody's memory or an email.
+
+  Wrap any note containing a comma in %str(), e.g.
+    %dd_annotate(dataset=MEMORY.DISPENSING, varname=PRODUCT_NAME,
+                 note=%str(Approximate: names are not standardized, so
+                           distinct-product counts are an estimate));
+-----------------------------------------------------------------------------*/
+%macro dd_annotate(dataset=,varname=,note=,dict=dd_dictionary);
+  %if %dd_dsexist(&dict)=0 %then %do;
+    %dd_warn(&dict does not exist - run %nrstr(%dd_assemble) first.); %return;
+  %end;
+  data &dict;
+    length analyst_note $400;
+    set &dict;
+    if upcase(strip(dataset))=%upcase("&dataset")
+       and upcase(strip(varname))=%upcase("&varname")
+       then analyst_note=catx('; ',analyst_note,"&note");
+    label analyst_note='Analyst note / caveat';
+  run;
+  %dd_note(Annotated &dataset..&varname);
+%mend dd_annotate;
+
+/*-----------------------------------------------------------------------------
   %DD_EXPORT -- one workbook, one sheet per section.
   export=VM     everything, unsuppressed, stays on the VM
   export=SHARE  small cells suppressed at &DD_MINCELL, safe to move
