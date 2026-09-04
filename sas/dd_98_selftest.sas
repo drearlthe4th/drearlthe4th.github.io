@@ -15,7 +15,11 @@
   is working and any later failure is about your data, not the code.
 =============================================================================*/
 
-/* assumes dd_00 .. dd_07 have already been %included by a driver */
+/*  HOW TO RUN IT
+    Run STEP 0 of either driver (the %include block) and then this file, in a
+    FRESH SAS SESSION. This file overwrites DD_OUT and DD_PROJECT so its
+    output lands in WORK; running it in the middle of a real profiling session
+    would redirect that session's output too.                                */
 %let DD_OUT = %sysfunc(pathname(work));   /* selftest writes to WORK */
 %let DD_PROJECT = selftest;
 
@@ -24,7 +28,9 @@ proc datasets library=work nolist nowarn;
   delete dd_tables dd_columns dd_missing dd_numstats dd_outliers
          dd_cardinality dd_values dd_levelcount dd_corrpairs dd_dates
          dd_patient_summary dd_patient_meta dd_linkage dd_duplicates
-         dd_calendar dd_interval_summary dd_dictionary;
+         dd_calendar dd_interval_summary dd_dictionary
+         dd_inventory dd_inventory_summary dd_panel_vars dd_panel_values
+         dd_panel_stats;
 quit;
 
 %dd_profile(lib=SASHELP, mem=HEART,
